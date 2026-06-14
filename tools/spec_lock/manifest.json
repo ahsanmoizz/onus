@@ -1,0 +1,47 @@
+{
+  "manifest_version": 1,
+  "algorithm": "sha256",
+  "regeneration_policy": "Regenerate only after the user writes exactly 'SPEC CHANGE APPROVED'.",
+  "locked_documents": [
+    {
+      "path": "AGENTS.md",
+      "sha256": "557da52b4ad1d3bc663decd8adef271f45ad1fa468b14f279b337bdfc4a19138"
+    },
+    {
+      "path": "MANIFESTO.md",
+      "sha256": "aa74ab0041a339d6f56d157807be374ad703f36104fdf676fa70559eea573849"
+    },
+    {
+      "path": "SPEC.md",
+      "sha256": "cb29d27fda22f2041128b450ba46ab85c19c6a029da4f0214262b20f469982b0"
+    },
+    {
+      "path": "docs/ONUS_ACCEPTANCE_TESTS.md",
+      "sha256": "0d0bf045676e4aca38b25475b632034242b2bfe5ea0d7f48abca81d18b6bf5ab"
+    },
+    {
+      "path": "docs/Onus_current_state.md",
+      "sha256": "3d707bb2312fd8393d3d9692820e70064ae9981a4be6cb44ae1e10e7dbe51ab7"
+    },
+    {
+      "path": "docs/ONUS_IMPLEMENTATION_ROADMAP.md",
+      "sha256": "4fdf949c5f576c64c3f5e4c507be7edd789f8fb92c774ba0d9c45ab8db37ab24"
+    },
+    {
+      "path": "docs/ONUS_PRODUCT_VISION.md",
+      "sha256": "bf45610dabe2cdc51d23bbbf4ee0ba1283d8701840ee8a163377e36c0490c47e"
+    },
+    {
+      "path": "docs/ONUS_SECURITY_REQUIREMENTS.md",
+      "sha256": "a3f21a4bde4bab39a2237ff78c1028fe0a90b76b624087646746e45fe3791e2b"
+    },
+    {
+      "path": "docs/ONUS_TARGET_ARCHITECTURE.md",
+      "sha256": "0f91a7c7adc747ed1761cef7df2960a5e0cfe036e1747fa2e6e7a0fcf514da6a"
+    },
+    {
+      "path": "docs/Onus_Whitepaper.txt",
+      "sha256": "5af59605acab7af6feb48713d213b75c485a1c898e857d66229799eed5baeccc"
+    }
+  ]
+}

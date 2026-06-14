@@ -1,0 +1,193 @@
+# Onus Safety Rules — Default Rule Set v0.1
+# These 13 rules ship with every Onus installation.
+# Users can customize via `onus rules edit` or add org-wide policies via cloud.
+#
+# Rule schema:
+#   id          — unique identifier
+#   name        — human-readable name
+#   description — why this rule exists
+#   tier        — 1 (deterministic), 2 (heuristic), 3 (learned)
+#   action_type — "shell", "file_write", "file_delete", "file_read", "git"
+#   pattern     — regex matched against action payload
+#   decision    — "block", "warn", "escalate"
+#   correction  — message fed back to agent on block
+#   allowlist   — paths/patterns that override the block (e.g., rm -rf node_modules is OK)
+
+# ============================================================
+# TIER 1 — Safety Rules (deterministic, always on)
+# ============================================================
+
+[[rule]]
+id = "SAFETY_001"
+name = "destructive-filesystem-command"
+description = "Blocks rm -rf, dd, mkfs, fork bomb, and other destructive filesystem operations"
+tier = 1
+action_type = "shell"
+pattern = '(rm\s+-rf|dd\s+if=|mkfs\.|:\(\)\s*\{\s*:)'
+decision = "block"
+reversibility = "irreversible"
+correction = "This shell command would destroy filesystem data. If this is intentional (cleaning build artifacts), add the path to your allowlist via `onus rules edit`."
+allowlist = ["node_modules", ".cache", "__pycache__", "target", "dist", "build", ".next", ".turbo", "coverage", ".venv", "venv", "tmp", ".tmp"]
+
+[[rule]]
+id = "SAFETY_002"
+name = "sudo-execution"
+description = "Blocks any sudo invocation — agents should never need root"
+tier = 1
+action_type = "shell"
+pattern = 'sudo\s+'
+decision = "escalate"
+reversibility = "irreversible"
+correction = "Agent attempted to run a command with sudo. This requires human approval. The task should not require root privileges."
+
+[[rule]]
+id = "SAFETY_003"
+name = "curl-pipe-shell"
+description = "Blocks curl/wget piped to shell — classic RCE vector"
+tier = 1
+action_type = "shell"
+pattern = '(curl|wget)\s+.*\|\s*(bash|sh|zsh|dash)'
+decision = "block"
+reversibility = "irreversible"
+correction = "Piping curl/wget output to a shell is a remote code execution risk. Download the script, inspect it, and execute it separately if it's needed for the task."
+allowlist = []
+
+[[rule]]
+id = "SAFETY_004"
+name = "environment-exfiltration"
+description = "Blocks commands that read and echo environment variables (common in credential theft)"
+tier = 1
+action_type = "shell"
+pattern = '(env\s*$|printenv|cat\s+.*\.env|echo\s+\$(AWS_|GITHUB_|NPM_|DOCKER_|KUBE_|DATABASE_))'
+decision = "block"
+reversibility = "irreversible"
+correction = "Reading environment variables may expose secrets. If the task genuinely requires this, confirm the variable name is non-sensitive and retry."
+allowlist = ["NODE_ENV", "PATH", "HOME", "USER", "PWD", "SHELL", "LANG", "TERM"]
+
+[[rule]]
+id = "SAFETY_005"
+name = "permission-escalation"
+description = "Blocks chmod 777 and chown to root — makes files world-writable or root-owned"
+tier = 1
+action_type = "shell"
+pattern = '(chmod\s+777|chown\s+.*root)'
+decision = "block"
+reversibility = "compensable"
+correction = "This command would grant excessive filesystem permissions. Use more restrictive permissions (e.g., chmod 755, chmod 600)."
+allowlist = []
+
+[[rule]]
+id = "SAFETY_006"
+name = "git-force-push"
+description = "Blocks git push --force and branch deletion on remotes"
+tier = 1
+action_type = "shell"
+pattern = 'git\s+push\s+.*(--force|--delete)'
+decision = "escalate"
+reversibility = "compensable"
+correction = "Force-pushing or deleting remote branches rewrites shared history. This requires human approval."
+allowlist = []
+
+[[rule]]
+id = "SAFETY_007"
+name = "database-drop"
+description = "Blocks DROP TABLE, DROP DATABASE, TRUNCATE statements"
+tier = 1
+action_type = "shell"
+pattern = '(DROP\s+(TABLE|DATABASE|SCHEMA)|TRUNCATE\s+(TABLE\s+)?)'
+decision = "escalate"
+reversibility = "irreversible"
+correction = "This command would destroy database data. This requires human approval."
+allowlist = []
+
+[[rule]]
+id = "SAFETY_008"
+name = "network-bind-all-interfaces"
+description = "Blocks opening ports on 0.0.0.0 — avoids unintended network exposure"
+tier = 1
+action_type = "shell"
+pattern = '0\.0\.0\.0:\d+'
+decision = "warn"
+reversibility = "compensable"
+correction = "Binding to 0.0.0.0 exposes the service on all network interfaces. Use 127.0.0.1 for local development unless external access is intentional."
+allowlist = []
+
+# ============================================================
+# TIER 1 — Scope Rules (deterministic, workspace boundary)
+# ============================================================
+
+[[rule]]
+id = "SCOPE_001"
+name = "write-outside-workspace"
+description = "Blocks file writes whose target path is outside the project working directory"
+tier = 1
+action_type = "file_write"
+pattern = ".*"  # Evaluated via scope check, not regex
+decision = "block"
+reversibility = "reversible"
+correction = "You attempted to write a file outside the project workspace. Restrict changes to the task scope."
+allowlist = []
+
+[[rule]]
+id = "SCOPE_002"
+name = "delete-outside-workspace"
+description = "Blocks file deletions whose target path is outside the project working directory"
+tier = 1
+action_type = "file_delete"
+pattern = ".*"  # Evaluated via scope check
+decision = "block"
+reversibility = "compensable"
+correction = "You attempted to delete a file outside the project workspace. This is not within the task scope."
+allowlist = []
+
+[[rule]]
+id = "SCOPE_003"
+name = "read-sensitive-paths"
+description = "Blocks reading of known sensitive system paths"
+tier = 1
+action_type = "shell"
+pattern = '(cat|less|head|tail|read)\s+.*(/etc/passwd|/etc/shadow|~/.ssh/|/var/run/docker\.sock|/proc/self/)'
+decision = "block"
+reversibility = "irreversible"
+correction = "Attempted to read a sensitive system file. This is not required for the stated task."
+allowlist = []
+
+[[rule]]
+id = "SCOPE_004"
+name = "git-destructive-local"
+description = "Blocks git reset --hard, git clean -fd, git checkout -- . on local repo"
+tier = 1
+action_type = "shell"
+pattern = '(git\s+reset\s+--hard|git\s+clean\s+-fd|git\s+checkout\s+--\s+\.)'
+decision = "warn"
+reversibility = "reversible"
+correction = "This git command will permanently discard uncommitted changes. Ensure this is intentional."
+allowlist = []
+
+# ============================================================
+# TIER 2 — Heuristic Rules (warn by default)
+# ============================================================
+
+[[rule]]
+id = "SAFETY_009"
+name = "database-destructive-mutation"
+description = "Blocks destructive SQL mutations sent through DB adapters"
+tier = 1
+action_type = "db_mutation"
+pattern = '(?i)\b(DROP\s+(TABLE|DATABASE|SCHEMA)|TRUNCATE\s+(TABLE\s+)?|DELETE\s+FROM\s+\w+\s*;|UPDATE\s+\w+\s+SET\s+.+;)\b'
+decision = "escalate"
+reversibility = "irreversible"
+correction = "This database mutation may destroy or broadly rewrite data. Narrow the query, add a WHERE clause, or request human approval."
+allowlist = []
+
+[[rule]]
+id = "MAGNITUDE_001"
+name = "large-diff-warning"
+description = "Flags file changes that are disproportionately large relative to the task"
+tier = 2
+action_type = "file_write"
+pattern = ".*"  # Evaluated heuristically
+decision = "warn"
+reversibility = "reversible"
+correction = "This edit changes a large number of lines. Verify the change scope matches the task."
+allowlist = []

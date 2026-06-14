@@ -1,0 +1,76 @@
+{
+  "name": "onus-firewall",
+  "displayName": "Onus AI Agent Firewall",
+  "description": "Intercepts dangerous agent actions in VS Code — protects your workspace from destructive commands, file operations, and unsafe operations.",
+  "version": "0.1.0",
+  "publisher": "onus",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Gitlawb/onus"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Security",
+    "Other"
+  ],
+  "keywords": [
+    "onus",
+    "agent-firewall",
+    "safety",
+    "ai-safety"
+  ],
+  "icon": "icon.png",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./src/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "onus.enable",
+        "title": "Onus: Enable Firewall"
+      },
+      {
+        "command": "onus.disable",
+        "title": "Onus: Disable Firewall"
+      },
+      {
+        "command": "onus.status",
+        "title": "Onus: Show Status"
+      },
+      {
+        "command": "onus.openLog",
+        "title": "Onus: Open Audit Log"
+      }
+    ],
+    "configuration": {
+      "title": "Onus",
+      "properties": {
+        "onus.binaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the onus binary. Empty = search PATH."
+        },
+        "onus.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable or disable the Onus firewall."
+        },
+        "onus.blockOnEscalate": {
+          "type": "boolean",
+          "default": false,
+          "description": "Treat 'escalate' verdicts as blocks instead of prompting."
+        },
+        "onus.logLevel": {
+          "type": "string",
+          "default": "warn",
+          "enum": ["error", "warn", "info", "debug"],
+          "description": "Log level for Onus extension."
+        }
+      }
+    }
+  }
+}

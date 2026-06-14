@@ -1,0 +1,19 @@
+# Locked Onus specification documents.
+# GitHub enforces CODEOWNERS only when branch protection requires code-owner review.
+
+/AGENTS.md @Gitlawb
+/MANIFESTO.md @Gitlawb
+/SPEC.md @Gitlawb
+/docs/ONUS_ACCEPTANCE_TESTS.md @Gitlawb
+/docs/Onus_current_state.md @Gitlawb
+/docs/ONUS_IMPLEMENTATION_ROADMAP.md @Gitlawb
+/docs/ONUS_PRODUCT_VISION.md @Gitlawb
+/docs/ONUS_SECURITY_REQUIREMENTS.md @Gitlawb
+/docs/ONUS_TARGET_ARCHITECTURE.md @Gitlawb
+/docs/Onus_Whitepaper.txt @Gitlawb
+
+# Lock infrastructure.
+/tools/spec_lock/ @Gitlawb
+/tests/test_spec_lock.py @Gitlawb
+/.github/workflows/spec-lock.yml @Gitlawb
+/.github/CODEOWNERS @Gitlawb

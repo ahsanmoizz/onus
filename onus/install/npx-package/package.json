@@ -1,0 +1,16 @@
+{
+  "name": "@onus/install",
+  "version": "0.1.0",
+  "description": "Install Onus — the AI Agent Firewall. One command: npx @onus/install",
+  "bin": {
+    "onus-install": "./install.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Gitlawb/onus"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
+}

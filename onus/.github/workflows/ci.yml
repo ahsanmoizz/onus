@@ -1,0 +1,142 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MSYS2 + MinGW (Windows)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          release: false
+          path-type: inherit
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo test
+        run: cargo test --verbose
+
+      - name: cargo build --release
+        run: cargo build --release --verbose
+
+      - name: Upload binary (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: onus-linux-x86_64
+          path: target/release/onus
+
+      - name: Upload binary (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: onus-macos-x86_64
+          path: target/release/onus
+
+      - name: Upload binary (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: onus-windows-x86_64.exe
+          path: target/release/onus.exe
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy -- -D warnings
+
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, lint]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Compute SHA256 checksums
+        shell: bash
+        run: |
+          cd artifacts
+          sha256sum onus-linux-x86_64/onus > onus-linux-x86_64.sha256
+          sha256sum onus-macos-x86_64/onus > onus-macos-x86_64.sha256
+          sha256sum "onus-windows-x86_64.exe/onus.exe" > onus-windows-x86_64.exe.sha256
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Onus ${{ github.ref_name }}
+          body: |
+            ## Onus ${{ github.ref_name }}
+
+            ### Installation
+            ```bash
+            curl -fsSL https://github.com/Gitlawb/onus/releases/latest/download/install.sh | bash
+            ```
+
+            ### Binaries
+            - [Linux x86_64](onus-linux-x86_64)
+            - [macOS x86_64](onus-macos-x86_64)
+            - [Windows x86_64](onus-windows-x86_64.exe)
+          files: |
+            artifacts/onus-linux-x86_64/onus
+            artifacts/onus-macos-x86_64/onus
+            artifacts/onus-windows-x86_64.exe/onus.exe
+            artifacts/*.sha256
+
+  pages:
+    name: Deploy Website
+    if: github.ref == 'refs/heads/main'
+    needs: [test, lint]
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

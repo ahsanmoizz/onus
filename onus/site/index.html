@@ -1,0 +1,44 @@
+# Onus — AI Agent Firewall
+
+Real-time safety layer for AI coding agents. Intercepts actions, evaluates against policy rules, and blocks dangerous operations before they execute.
+
+## Features
+
+- **Real-time interception** — evaluates every agent action (shell, file, network, git) before execution
+- **Policy engine** — 13 built-in safety and scope rules, fully configurable TOML
+- **Multi-integration** — Claude Code hook, MCP proxy, shell wrapper, Python SDK, VS Code
+- **Audit trail** — cryptographically chained JSONL logs with Merkle tree verification
+- **Goal drift detection** — validates file touches against declared scope
+- **Tier 2 heuristics** — catch dangerous patterns by magnitude analysis
+- **Low latency** — ~3MB Rust binary, no cloud dependency
+
+## Quick Start
+
+```bash
+# Install (Linux/macOS)
+curl -fsSL https://github.com/Gitlawb/onus/releases/latest/download/install.sh | bash
+
+# Install (Windows PowerShell)
+iex "& { $(irm https://github.com/Gitlawb/onus/releases/latest/download/install.ps1) }"
+
+# Install (npm)
+npx onus
+```
+
+## Documentation
+
+Coming soon. For now, see the [GitHub repository](https://github.com/Gitlawb/onus) and `onus help`.
+
+## Architecture
+
+```
+Agent Action → Onus IPC → Policy Engine → Audit Log → Verdict → Block/Allow/Correct
+                              │
+                    ┌─────────┴──────────┐
+              Tier 1 Rules          Tier 2 Heuristics
+           (pattern-based)         (magnitude-based)
+```
+
+## License
+
+MIT &copy; 2026 Onus

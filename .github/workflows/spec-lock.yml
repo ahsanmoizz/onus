@@ -1,0 +1,26 @@
+name: Spec Lock
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  verify-spec-lock:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify locked Onus documents
+        run: python tools/spec_lock/verify_spec_lock.py
+
+      - name: Run spec lock tests
+        run: python -m unittest tests.test_spec_lock -v

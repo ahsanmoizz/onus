@@ -1,0 +1,880 @@
+# ONUS Guardian Intelligence, Memory and Approval System
+
+This directive extends the existing Onus architecture and is now part of the target product specification.
+
+Do not weaken or replace the current deterministic policy engine, Rust evaluator, Guardian SDK, audit system, approval system, rollback system, or L1–L4 architecture.
+
+The purpose of this feature is to make Onus act as an intelligent guardian for inexperienced developers and a strict quality reviewer for senior engineers.
+
+## 1. Core operating principle
+
+Onus must evaluate both:
+
+1. **What the user is asking the agent to do**
+2. **What the agent is about to execute**
+
+The LLM may understand intent, identify ambiguity, explain risk, propose corrections, maintain useful project context, and verify semantic alignment.
+
+The LLM must never have final authority over deterministic security denials.
+
+The decision order must be:
+
+1. Environment and identity validation
+2. Deterministic safety policy
+3. Scope and task-contract policy
+4. Reversibility and blast-radius analysis
+5. Heuristic analysis
+6. LLM semantic review
+7. Human approval when uncertainty remains
+8. Controlled execution
+9. Independent verification
+10. Receipt and memory update
+
+A deterministic denial cannot be changed to allow by the LLM.
+
+---
+
+## 2. Prompt Intake Guardian
+
+Before an agent begins work, Onus must inspect the user’s original request.
+
+The Prompt Intake Guardian must detect:
+
+* ambiguous requests;
+* dangerously broad requests;
+* missing target environment;
+* missing repository or service scope;
+* conflicting requirements;
+* unnecessary destructive operations;
+* requests that would weaken security or tests;
+* requests that expose credentials;
+* requests that the user may not understand;
+* requests that cannot be safely reversed;
+* requests that do not include a definition of completion.
+
+Examples of dangerous or incomplete prompts:
+
+* “Fix everything.”
+* “Make all tests pass.”
+* “Delete anything causing errors.”
+* “Use my production database and test it.”
+* “Put the API key directly in the source.”
+* “Give the agent full access.”
+* “Deploy whatever works.”
+* “Disable security so this feature runs.”
+
+Onus must not blindly pass these prompts to the coding agent.
+
+It must return one of:
+
+* `READY`
+* `READY_WITH_SAFE_CONTRACT`
+* `CLARIFICATION_REQUIRED`
+* `REJECTED_AS_UNSAFE`
+
+Example:
+
+```text
+Your request is too broad to execute safely.
+
+“Fix everything” could allow the agent to modify unrelated modules,
+delete tests, replace dependencies, or change production configuration.
+
+Recommended task contract:
+
+Objective:
+Fix the authentication expiry failure.
+
+Allowed scope:
+src/auth/**
+tests/auth/**
+
+Protected:
+.env
+production configuration
+database schema
+CI/CD workflows
+
+Required evidence:
+Existing authentication tests remain enabled and pass.
+
+[ACCEPT CONTRACT]
+[EDIT CONTRACT]
+[CANCEL]
+```
+
+Onus should ask the minimum number of questions necessary.
+
+When the missing information can safely be inferred from repository evidence, Onus may generate a proposed contract instead of blocking the user with unnecessary questions.
+
+---
+
+## 3. Guardian modes
+
+Implement the following user modes.
+
+### 3.1 Beginner Guardian Mode
+
+Designed for vibe coders and users with limited engineering knowledge.
+
+Onus must:
+
+* translate technical danger into simple language;
+* explain why an action is dangerous;
+* prevent broad destructive requests;
+* automatically create safe checkpoints;
+* use conservative defaults;
+* ask before database, infrastructure, deployment, credential, or large-scope changes;
+* prevent test deletion or weakening;
+* prevent secrets from being committed;
+* guide the user toward a safer task;
+* show the consequences before approval;
+* provide a recommended option.
+
+Example:
+
+```text
+The agent wants to delete 28 files.
+
+Your request was only to fix the login button.
+
+This change is much larger than expected and may break unrelated features.
+
+Recommended decision: BLOCK
+
+[BLOCK]
+[REVIEW FILES]
+[ALLOW ONCE]
+```
+
+Do not display “Allow everything forever” as the primary option.
+
+### 3.2 Professional Reviewer Mode
+
+Designed for experienced developers.
+
+Onus must:
+
+* enforce task scope;
+* enforce architecture and repository policies;
+* detect excessive diffs;
+* protect tests and coverage;
+* require lint, typecheck, security scans, and targeted tests;
+* detect dependency and configuration drift;
+* require evidence before task completion;
+* allow low-risk actions without interruption;
+* escalate material deviations.
+
+### 3.3 Enterprise Strict Mode
+
+Designed for production and regulated environments.
+
+Onus must:
+
+* deny mutating actions by default unless authorized;
+* require environment identity;
+* use managed signed policies;
+* require exact action-bound approvals;
+* enforce credential isolation;
+* require L3 or L4 boundaries for production actions;
+* fail closed on critical evaluator failure;
+* require independent verification;
+* produce signed receipts.
+
+---
+
+## 4. LLM roles
+
+Implement the LLM as separate controlled roles.
+
+### 4.1 Intent Interpreter
+
+Input:
+
+* original user request;
+* repository metadata;
+* issue or ticket;
+* existing project policy;
+* current environment.
+
+Output:
+
+* normalized objective;
+* allowed scope;
+* protected scope;
+* completion evidence;
+* ambiguities;
+* risk assumptions;
+* questions requiring user confirmation.
+
+### 4.2 Semantic Risk Critic
+
+Input:
+
+* task contract;
+* proposed action;
+* relevant diff;
+* previous actions;
+* repository architecture;
+* policy findings.
+
+Output:
+
+* whether the action appears aligned with the task;
+* whether the magnitude is proportionate;
+* possible quality problems;
+* possible hidden side effects;
+* confidence;
+* recommended decision.
+
+The output is advisory.
+
+It cannot override deterministic policy.
+
+### 4.3 Correction Generator
+
+When an action is denied or escalated, produce a structured correction:
+
+```json
+{
+  "violation": "acceptance_test_deleted",
+  "reason": "The deleted test is required evidence for the task.",
+  "required_action": "Restore the test and repair the implementation.",
+  "constraints": [
+    "Do not skip the test",
+    "Do not reduce its assertions",
+    "Do not modify the database schema"
+  ],
+  "required_evidence": [
+    "The original test passes",
+    "The test remains enabled"
+  ],
+  "retry_allowed": true
+}
+```
+
+The correction generator must never invent a verified root cause.
+
+Unverified statements must be labeled as hypotheses.
+
+### 4.4 Independent Verifier
+
+Use a separate verification stage after the executor claims completion.
+
+The verifier receives:
+
+* original task;
+* task contract;
+* final diff;
+* complete action trace;
+* denied and corrected actions;
+* tests and evidence;
+* policy exceptions.
+
+The verifier must determine:
+
+* whether the requested outcome was achieved;
+* whether tests were weakened;
+* whether the implementation drifted;
+* whether security was reduced;
+* whether required evidence is sufficient;
+* whether the task may be accepted.
+
+The executor’s own success statement is not proof.
+
+### 4.5 User Guidance Assistant
+
+For inexperienced users, explain:
+
+* what the agent wants to do;
+* why it may be dangerous;
+* what safer alternative exists;
+* what can and cannot be reverted;
+* what the recommended decision is.
+
+This assistant should act as a technical guardian and mentor, not as an uncontrolled executor.
+
+---
+
+## 5. Onus memory system
+
+Implement memory as explicit, scoped data stores.
+
+### 5.1 Session Memory
+
+Stores only the current task:
+
+* original request;
+* clarifications;
+* task contract;
+* agent plan;
+* actions;
+* denials;
+* corrections;
+* approvals;
+* evidence;
+* final outcome.
+
+Expires or is archived when the session ends.
+
+### 5.2 Project Memory
+
+Stores stable project knowledge:
+
+* architecture;
+* coding conventions;
+* approved dependencies;
+* protected paths;
+* test commands;
+* deployment process;
+* repository-specific risks;
+* previous accepted design decisions.
+
+Project memory must be versioned and reviewable.
+
+### 5.3 Policy Memory
+
+Stores organizational rules:
+
+* forbidden operations;
+* approval requirements;
+* environment restrictions;
+* credential policy;
+* compliance requirements;
+* risk thresholds.
+
+Policy memory is authoritative and cannot be silently changed by an agent.
+
+### 5.4 Incident Memory
+
+Stores previous failures:
+
+* action pattern;
+* policy violation;
+* correction;
+* human decision;
+* final outcome;
+* false-positive or true-positive label.
+
+Use incident memory to improve future warnings.
+
+### 5.5 User Capability Preferences
+
+Optional and user-controlled.
+
+May store:
+
+* preferred explanation level;
+* preferred approval frequency;
+* whether the user wants beginner or professional explanations;
+* trusted local commands;
+* preferred development workflow.
+
+Do not secretly profile users.
+
+Do not infer sensitive personal information.
+
+### 5.6 Memory safety
+
+Never store raw secrets.
+
+Apply:
+
+* redaction;
+* encryption;
+* tenant isolation;
+* retention limits;
+* deletion controls;
+* provenance;
+* versioning;
+* access control.
+
+The LLM must receive only the minimum relevant memory for the current decision.
+
+---
+
+## 6. Approval Decision Broker
+
+Implement an approval broker that replaces blind IDE approval behavior.
+
+The broker must support these decisions:
+
+* `ALLOW_AUTOMATICALLY`
+* `ALLOW_WITH_OBLIGATIONS`
+* `REQUIRE_HUMAN_APPROVAL`
+* `DENY_WITH_CORRECTION`
+* `TERMINATE_SESSION`
+
+### 6.1 Automatic approval
+
+Onus may automatically approve only when all are true:
+
+* the action is inside the task contract;
+* the action is low risk;
+* no protected resource is touched;
+* the environment is non-production;
+* the blast radius is below policy limits;
+* the action is reversible or read-only;
+* no deterministic rule is triggered;
+* no approval policy requires a human;
+* the action payload is exactly bound to the approval.
+
+Examples:
+
+* reading an allowed source file;
+* running a local test command;
+* writing a small change inside the allowed module;
+* formatting a file;
+* generating a temporary artifact.
+
+### 6.2 Human approval
+
+Require human approval for:
+
+* production operations;
+* database schema changes;
+* destructive SQL;
+* infrastructure changes;
+* external communications;
+* credential use;
+* changes outside declared scope;
+* large diffs;
+* test removal or weakening;
+* irreversible or uncertain operations;
+* low-confidence semantic decisions.
+
+The approval request must show:
+
+* exact action;
+* exact arguments;
+* environment;
+* reason;
+* risk;
+* blast radius;
+* reversibility;
+* expected result;
+* safer alternative;
+* Onus recommendation.
+
+### 6.3 Approval binding
+
+Every approval must bind to:
+
+* session ID;
+* task-contract hash;
+* action ID;
+* canonical action payload hash;
+* policy version;
+* environment identity;
+* expiry time;
+* approver identity.
+
+Changing any argument invalidates the approval.
+
+An approval may not authorize a later different action merely because it uses the same tool name.
+
+### 6.4 IDE integration
+
+Preferred integration order:
+
+1. Native IDE or agent approval API
+2. Pre-tool hook response
+3. SDK callback
+4. MCP approval protocol
+5. Onus-owned executor
+6. Onus local approval window
+7. Experimental UI automation fallback
+
+Do not use blind mouse clicks as the primary approval mechanism.
+
+If UI automation is required because no API exists:
+
+* restrict it to local non-production actions;
+* confirm the exact window, action text, and payload hash;
+* require accessibility or DOM identity checks;
+* disable it in Strict Mode;
+* record it as `UI_AUTOMATION_APPROVAL`;
+* fail closed if the displayed action cannot be matched exactly.
+
+---
+
+## 7. Vibe Coder protection flow
+
+Implement this complete flow.
+
+```text
+User submits vague request
+        ↓
+Onus analyzes intent
+        ↓
+Onus identifies missing scope and danger
+        ↓
+Onus proposes a safe task contract
+        ↓
+User accepts or edits
+        ↓
+Agent starts inside governed environment
+        ↓
+Each action is evaluated
+        ↓
+Low risk: automatically approved
+Medium risk: Onus recommendation + user approval
+High risk: denied with correction
+Critical risk: session paused or terminated
+        ↓
+Agent retries
+        ↓
+Onus verifies evidence
+        ↓
+User receives a working product or a precise unresolved report
+```
+
+Example:
+
+User:
+
+```text
+Make the whole website work and remove anything causing errors.
+```
+
+Onus:
+
+```text
+I should not send this request directly to the agent.
+
+“Remove anything causing errors” could cause deletion of tests,
+features, configuration, or data.
+
+I found these current failures:
+
+1. Authentication test failure
+2. Missing frontend environment variable
+3. Database connection error
+
+Recommended plan:
+
+Stage 1: Repair authentication without deleting tests
+Stage 2: Validate frontend configuration
+Stage 3: Diagnose database connectivity without schema changes
+
+A checkpoint will be created before every stage.
+
+[START SAFE PLAN]
+[EDIT]
+[CANCEL]
+```
+
+---
+
+## 8. Senior quality maintenance
+
+For professional teams, Onus must enforce quality obligations.
+
+Support:
+
+* architecture rules;
+* module boundaries;
+* API compatibility;
+* test preservation;
+* minimum coverage;
+* linting;
+* type checking;
+* security scanning;
+* dependency review;
+* performance budgets;
+* migration review;
+* backward compatibility;
+* documentation obligations;
+* required reviewers;
+* repository-specific completion checks.
+
+Example:
+
+```text
+ALLOW WITH OBLIGATIONS
+
+The code change is inside scope.
+
+Before completion, Onus requires:
+
+- authentication unit tests;
+- integration test for expired JWT;
+- typecheck;
+- secret scan;
+- no coverage reduction;
+- no public API break.
+```
+
+Onus should maintain quality without interrupting every harmless action.
+
+---
+
+## 9. Recovery and rollback
+
+Before a mutating session:
+
+* create a Git worktree or isolated overlay;
+* create an initial checkpoint;
+* record repository state;
+* identify external resources;
+* classify reversibility.
+
+Use these classes:
+
+* `R0` — read-only
+* `R1` — automatically reversible
+* `R2` — snapshot reversible
+* `R3` — compensatable external action
+* `R4` — irreversible or mitigation-only
+
+For every mutating action store:
+
+* pre-state;
+* proposed mutation;
+* decision;
+* exact executed payload;
+* post-state;
+* inverse operation;
+* compensation operation;
+* verification result.
+
+Support:
+
+* revert individual action;
+* revert action group;
+* revert full session;
+* restore checkpoint;
+* execute compensation;
+* explain what cannot be reversed.
+
+Never claim a leaked secret is repaired by reverting a file.
+
+Trigger rotation and revocation where required.
+
+---
+
+## 10. Evidence-based completion
+
+The agent cannot mark a task complete by text alone.
+
+Onus must check the task contract.
+
+Possible evidence:
+
+* required tests pass;
+* original tests remain enabled;
+* no secret detected;
+* lint passes;
+* typecheck passes;
+* expected API response observed;
+* browser behavior verified;
+* migration dry-run passes;
+* final diff remains inside scope;
+* no unresolved approvals;
+* no critical policy violations;
+* independent verifier accepts the result.
+
+Final statuses:
+
+* `COMPLETED_VERIFIED`
+* `COMPLETED_WITH_EXCEPTIONS`
+* `HUMAN_REVIEW_REQUIRED`
+* `FAILED_SAFELY`
+* `ROLLED_BACK`
+* `TERMINATED`
+
+---
+
+## 11. Model provider architecture
+
+Do not tightly couple Onus to one LLM vendor.
+
+Create a provider interface supporting:
+
+* cloud model providers;
+* enterprise-hosted models;
+* local models;
+* disabled/offline mode.
+
+Example interface:
+
+```rust
+pub trait SemanticReviewer {
+    fn interpret_task(
+        &self,
+        input: TaskInterpretationRequest
+    ) -> Result<TaskInterpretation>;
+
+    fn review_action(
+        &self,
+        input: ActionReviewRequest
+    ) -> Result<SemanticAssessment>;
+
+    fn generate_correction(
+        &self,
+        input: CorrectionRequest
+    ) -> Result<StructuredCorrection>;
+
+    fn verify_completion(
+        &self,
+        input: CompletionReviewRequest
+    ) -> Result<CompletionAssessment>;
+}
+```
+
+Provider configuration must include:
+
+* model;
+* endpoint;
+* timeout;
+* privacy mode;
+* maximum data exposure;
+* redaction policy;
+* fallback behavior;
+* cost budget.
+
+On LLM failure:
+
+* deterministic rules continue;
+* critical actions fail closed;
+* low-risk actions follow configured policy;
+* no action is approved merely because the model is unavailable.
+
+---
+
+## 12. Required implementation sequence
+
+Implement in this order:
+
+1. Task-contract lifecycle
+2. Prompt Intake Guardian
+3. Memory schemas and redaction
+4. LLM provider interface
+5. Intent Interpreter
+6. Semantic Risk Critic
+7. Structured Correction Generator
+8. Approval Decision Broker
+9. Exact action-hash approval binding
+10. Beginner Guardian Mode
+11. Professional Reviewer Mode
+12. Independent Completion Verifier
+13. Transactional checkpoints and reversibility classes
+14. Native hook approval adapters
+15. Local approval interface
+16. L3 isolated workspace
+17. L4 credential and privileged-operation broker
+
+Do not start with UI polish.
+
+---
+
+## 13. Required acceptance scenarios
+
+### Scenario A — vague vibe-coder request
+
+Input:
+
+```text
+Fix everything and delete anything causing errors.
+```
+
+Expected:
+
+* request is not passed directly to the agent;
+* risks are explained;
+* a staged task contract is proposed;
+* destructive interpretation is forbidden.
+
+### Scenario B — deleted tests
+
+Expected:
+
+* deletion is blocked;
+* correction is returned;
+* retry preserves tests;
+* completion requires the tests to pass.
+
+### Scenario C — hardcoded secret
+
+Expected:
+
+* write is blocked;
+* secret is redacted;
+* secret value does not appear in logs;
+* correction recommends a secret reference.
+
+### Scenario D — low-risk IDE approval
+
+Expected:
+
+* Onus automatically approves an in-scope reversible action;
+* approval is bound to the exact action hash;
+* receipt records the decision.
+
+### Scenario E — changed approval payload
+
+Expected:
+
+* previously approved action is modified;
+* old approval is rejected;
+* new approval is required.
+
+### Scenario F — production migration
+
+Expected:
+
+* automatic approval is forbidden;
+* environment identity is displayed;
+* migration diff and rollback plan are required;
+* human approval is mandatory.
+
+### Scenario G — agent produces incomplete work
+
+Expected:
+
+* agent says complete;
+* required evidence is missing;
+* Onus rejects completion;
+* correction lists the missing checks.
+
+### Scenario H — failed implementation
+
+Expected:
+
+* Onus restores the last safe checkpoint;
+* session replay explains the failure;
+* the user receives an honest unresolved report.
+
+---
+
+## 14. Non-negotiable rules
+
+* Never blindly execute an ambiguous user prompt.
+* Never blindly approve an IDE action.
+* Never use an LLM as the only security boundary.
+* Never let an LLM override deterministic denial.
+* Never store secrets in memory, receipts, or prompts.
+* Never claim a task is complete without evidence.
+* Never permit silent test weakening.
+* Never reuse an approval for a changed payload.
+* Never hide irreversible effects.
+* Never allow a critical failure to silently fail open.
+* Never claim rollback when only mitigation is available.
+* Never make the user approve harmless actions repeatedly.
+* Never remove human authority over production-risk decisions.
+
+## Locked product definition
+
+Onus is an intelligent execution guardian for AI-assisted software development.
+
+For beginners, it converts unsafe or unclear requests into safe plans, explains risks, prevents destructive agent behavior, and guides the user toward a working result.
+
+For professional engineers, it enforces scope, architecture, quality, evidence, reversibility, and production policy without interrupting harmless work.
+
+For enterprises, it controls execution boundaries, approvals, credentials, and verifiable action records across agents and environments.
+
+Its intelligence comes from LLM-assisted intent understanding, semantic review, correction, memory, and verification.
+
+Its guarantees come from deterministic policy, controlled execution, isolation, exact approvals, checkpoints, and external authority.
+
+This specification is now part of the target Onus product and must not be removed or weakened without an explicit architecture decision record.
