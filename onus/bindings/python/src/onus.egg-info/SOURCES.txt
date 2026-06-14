@@ -1,8 +1,0 @@
-README.md
-pyproject.toml
-src/onus/__init__.py
-src/onus.egg-info/PKG-INFO
-src/onus.egg-info/SOURCES.txt
-src/onus.egg-info/dependency_links.txt
-src/onus.egg-info/top_level.txt
-tests/test_onus.py
