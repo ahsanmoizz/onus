@@ -1,16 +1,16 @@
-# Onus — AI Agent Firewall
+# Onus - AI Agent Firewall
 
-Real-time safety layer for AI coding agents. Intercepts actions, evaluates against policy rules, and blocks dangerous operations before they execute.
+Technical alpha safety layer for actions explicitly routed through Onus. It evaluates proposed actions against policy rules and blocks dangerous operations on supported paths before they execute.
 
 ## Features
 
-- **Real-time interception** — evaluates every agent action (shell, file, network, git) before execution
-- **Policy engine** — 13 built-in safety and scope rules, fully configurable TOML
-- **Multi-integration** — Claude Code hook, MCP proxy, shell wrapper, Python SDK, VS Code
-- **Audit trail** — cryptographically chained JSONL logs with Merkle tree verification
-- **Goal drift detection** — validates file touches against declared scope
-- **Tier 2 heuristics** — catch dangerous patterns by magnitude analysis
-- **Low latency** — ~3MB Rust binary, no cloud dependency
+- **Pre-action checks on routed paths** - evaluates supported actions before execution when the agent/tool uses an Onus integration
+- **Policy engine** - 13 built-in safety and scope rules, fully configurable TOML
+- **Prototype integrations** - Claude Code hook adapter, experimental MCP proxy, shell wrapper, Python SDK, VS Code extension
+- **Audit trail** - local SQLite audit records with SHA-256 hash-chain verification
+- **Goal drift detection** - validates file touches against declared scope where scope tracking is wired in
+- **Tier 2 heuristics** - catch dangerous patterns by magnitude analysis
+- **Low latency** - local Rust binary, no cloud dependency for deterministic evaluation
 
 ## Quick Start
 
@@ -27,18 +27,17 @@ npx onus
 
 ## Documentation
 
-Coming soon. For now, see the [GitHub repository](https://github.com/Gitlawb/onus) and `onus help`.
+This page is informational, not the live Onus dashboard. For the current runtime state, run `onus --help`, `onus dashboard`, and the repository current-state reports.
 
 ## Architecture
 
-```
-Agent Action → Onus IPC → Policy Engine → Audit Log → Verdict → Block/Allow/Correct
-                              │
-                    ┌─────────┴──────────┐
-              Tier 1 Rules          Tier 2 Heuristics
-           (pattern-based)         (magnitude-based)
+```text
+Agent Action -> Onus IPC -> Policy Engine -> Audit Log -> Verdict -> Block/Allow/Correct
+                              |
+                       Tier 1 Rules
+                    Tier 2 Heuristics
 ```
 
 ## License
 
-MIT &copy; 2026 Onus
+MIT (c) 2026 Onus

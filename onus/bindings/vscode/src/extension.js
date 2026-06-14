@@ -87,12 +87,12 @@ function evaluateAction(actionType, payload, tool) {
     const binary = findBinary();
     if (!binary) {
         log('error', 'Onus binary not found');
-        return { decision: 'allow' };
+        return { decision: 'unsupported', error: 'Onus binary not found; action was not evaluated.' };
     }
 
     const cfg = vscode.workspace.getConfiguration('onus');
     if (!cfg.get('enabled', true)) {
-        return { decision: 'allow' };
+        return { decision: 'disabled', error: 'Onus extension disabled by user configuration.' };
     }
 
     const seq = sequenceCounter++;
@@ -119,8 +119,20 @@ function evaluateAction(actionType, payload, tool) {
         return result;
     } catch (err) {
         log('error', `Evaluate failed: ${err.message}`);
-        return { decision: 'allow' };
+        return { decision: 'unsupported', error: `Onus evaluation failed: ${err.message}` };
     }
+}
+
+function surfaceUnsupported(result) {
+    if (result.decision === 'unsupported') {
+        vscode.window.showErrorMessage(`Onus did not evaluate this action: ${result.error}`);
+        return true;
+    }
+    if (result.decision === 'disabled') {
+        log('warn', result.error);
+        return true;
+    }
+    return false;
 }
 
 // ── Shell interception ──────────────────────────────────────────────────────
@@ -154,7 +166,9 @@ class OnusTerminal {
                     const commandLine = e.commandLine || '';
                     const result = evaluateAction('shell', { command: commandLine, cwd: getCwd() }, 'vscode_terminal');
 
-                    if (result.decision === 'block' || result.decision === 'escalate') {
+                    if (surfaceUnsupported(result)) {
+                        return;
+                    } else if (result.decision === 'block' || result.decision === 'escalate') {
                         const msg = result.correction || `Command blocked by Onus firewall`;
                         vscode.window.showWarningMessage(`🚫 Onus: ${msg}`);
                         log('warn', `Blocked terminal command`, { command: commandLine, rule: result.rule_id });
@@ -243,7 +257,9 @@ class OnusTaskProvider {
                         cwd: execution.options && execution.options.cwd || getCwd(),
                     }, `vscode_task:${task.name}`);
 
-                    if (result.decision === 'block' || result.decision === 'escalate') {
+                    if (surfaceUnsupported(result)) {
+                        return;
+                    } else if (result.decision === 'block' || result.decision === 'escalate') {
                         vscode.window.showWarningMessage(`🚫 Onus blocked task: ${task.name}`);
                         log('warn', `Blocked task`, { task: task.name, rule: result.rule_id });
                     }
@@ -279,8 +295,8 @@ function updateStatusBar() {
         statusBarItem.backgroundColor = undefined;
         statusBarItem.command = { command: 'onus.enable', title: 'Enable' };
     } else {
-        statusBarItem.text = '$(shield) Onus: active';
-        statusBarItem.tooltip = 'Onus firewall is active. Click to disable.';
+        statusBarItem.text = '$(shield) Onus: best-effort';
+        statusBarItem.tooltip = 'Onus VS Code extension is best-effort; use Onus-routed shells/SDK/proxy for pre-execution guarantees.';
         statusBarItem.backgroundColor = undefined;
         statusBarItem.command = { command: 'onus.disable', title: 'Disable' };
     }

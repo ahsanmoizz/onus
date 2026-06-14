@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<meta name="description" content="Onus — The AI Agent Firewall. Intercepts dangerous agent actions in real-time. Protects Claude Code, Cursor, VS Code, and terminal agents.">
+<meta name="description" content="Onus — technical alpha AI agent firewall. Protects actions that are explicitly routed through supported Onus integrations.">
 <meta property="og:title" content="Onus — AI Agent Firewall">
 <meta property="og:description" content="Intercept. Evaluate. Block. Before the damage is done.">
 <meta property="og:type" content="website">
@@ -231,7 +231,7 @@ footer a:hover{text-decoration:underline}
 <section class="hero">
   <div class="container">
     <h1>The AI Agent <span>Firewall</span></h1>
-    <p>Intercept every agent action in real-time. Evaluate against safety rules. Block destructive commands before they execute.</p>
+    <p>Evaluate actions routed through Onus against safety rules. Block destructive commands on supported pre-execution paths.</p>
     <div class="buttons">
       <a href="#install" class="btn btn-primary">Get Started</a>
       <a href="https://github.com/Gitlawb/onus" class="btn btn-secondary">View on GitHub</a>
@@ -280,8 +280,8 @@ footer a:hover{text-decoration:underline}
           <li>Destructive commands blocked with correction prompt</li>
           <li>Exfiltration attempts intercepted immediately</li>
           <li>Git force-push requires explicit approval</li>
-          <li>Workspace boundary enforced on every file write</li>
-          <li>Full audit trail with Merkle hash chaining</li>
+          <li>Workspace boundary checks on supported routed file writes</li>
+          <li>Local SQLite audit trail with SHA-256 hash-chain verification</li>
         </ul>
       </div>
     </div>
@@ -292,7 +292,7 @@ footer a:hover{text-decoration:underline}
   <div class="container">
     <div class="section-label">How It Works</div>
     <h2>Intercept → Evaluate → Decide</h2>
-    <p>Onus sits between "agent decides" and "agent does." Every action goes through the policy engine before execution.</p>
+    <p>Onus sits between "agent decides" and "agent does" for integrations that route actions through the policy engine before execution.</p>
     <div class="steps">
       <div class="step">
         <div class="number">1</div>
@@ -323,27 +323,27 @@ footer a:hover{text-decoration:underline}
 <section id="surfaces">
   <div class="container">
     <div class="section-label">Integration Surfaces</div>
-    <h2>Works everywhere</h2>
-    <p>One binary, five integration paths. Onus covers every major AI coding tool.</p>
+    <h2>Prototype integration paths</h2>
+    <p>One binary, several integration paths. Coverage is strongest for the Python Guardian and explicitly routed actions.</p>
     <div class="surface-grid">
       <div class="surface-card">
         <span class="badge">Hook</span>
         <h3>Claude Code</h3>
-        <p>1-line preToolUse hook in settings.json. Every Claude Code action evaluated before execution.</p>
+        <p>preToolUse hook adapter for Claude Code. Live external-agent coverage still needs environment-specific verification.</p>
         <code>onus evaluate</code>
         <div class="agents">Claude Code</div>
       </div>
       <div class="surface-card">
         <span class="badge">MCP Proxy</span>
-        <h3>Universal MCP</h3>
-        <p>Wrap any MCP server. Every tools/call evaluated through Onus before forwarding.</p>
-        <code>onus mcp-proxy --server &lt;mcp&gt;</code>
+        <h3>Experimental MCP</h3>
+        <p>Experimental proxy for MCP servers. Enable explicitly while MCP safety coverage is being hardened.</p>
+        <code>onus mcp-proxy --experimental --server &lt;mcp&gt;</code>
         <div class="agents">Cursor · VS Code · JetBrains · Continue</div>
       </div>
       <div class="surface-card">
         <span class="badge">Shell Hook</span>
         <h3>Terminal Agents</h3>
-        <p>Source the shell wrapper. Every command intercepted via bash/zsh DEBUG trap.</p>
+        <p>Source the shell wrapper for best-effort command checks via bash/zsh DEBUG trap.</p>
         <code>onus shell install</code>
         <div class="agents">Devin · Aider · OpenHands</div>
       </div>
@@ -357,8 +357,8 @@ footer a:hover{text-decoration:underline}
       <div class="surface-card">
         <span class="badge">Extension</span>
         <h3>VS Code</h3>
-        <p>Native VS Code extension with status bar indicator, terminal and task interception.</p>
-        <code>Install from marketplace</code>
+        <p>Best-effort VS Code extension with status bar indicator and terminal/task warnings.</p>
+        <code>Experimental extension</code>
         <div class="agents">VS Code · Cursor</div>
       </div>
     </div>
@@ -397,7 +397,7 @@ footer a:hover{text-decoration:underline}
       <div class="tier t3">
         <div class="tier-label">Tier 3</div>
         <h3>Learned</h3>
-        <p>Cross-deployment anomaly detection. The compounding moat — every deployment makes the network smarter.</p>
+        <p>Planned cross-deployment anomaly detection. Not part of the current local runtime.</p>
         <ul>
           <li>Pattern-of-life modeling</li>
           <li>Cross-org threat intelligence</li>
@@ -413,7 +413,7 @@ footer a:hover{text-decoration:underline}
   <div class="container">
     <div class="section-label">Get Started</div>
     <h2>Install in seconds</h2>
-    <p>Download the binary, choose your integration, you're protected.</p>
+    <p>Download the binary, choose a supported integration, and verify which actions are routed through Onus.</p>
 
     <div class="install-cmd">
       <span class="cmd">curl -fsSL https://github.com/Gitlawb/onus/releases/latest/download/install.sh | bash</span>
@@ -428,10 +428,10 @@ footer a:hover{text-decoration:underline}
 
     <div class="install-detail">
       <h3>MCP Proxy</h3>
-      <p>Replace your MCP server command with the Onus proxy:</p>
+      <p>For experimental MCP testing, replace your MCP server command with the Onus proxy:</p>
       <code class="small">{
   "command": "onus",
-  "args": ["mcp-proxy", "--server", "/path/to/real-server", "--", "arg1", "arg2"]
+  "args": ["mcp-proxy", "--experimental", "--server", "/path/to/real-server", "--", "arg1", "arg2"]
 }</code>
     </div>
 
