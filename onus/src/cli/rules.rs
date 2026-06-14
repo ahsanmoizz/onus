@@ -65,8 +65,8 @@ pub fn run(args: RulesArgs) -> anyhow::Result<()> {
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
 
             println!(
-                "{:14}  {:5}  {:12}  {:10}  {}",
-                "ID", "TIER", "TYPE", "DECISION", "NAME"
+                "{:14}  {:5}  {:12}  {:10}  NAME",
+                "ID", "TIER", "TYPE", "DECISION"
             );
             println!("{}", "─".repeat(100));
 
@@ -137,8 +137,8 @@ pub fn run(args: RulesArgs) -> anyhow::Result<()> {
                         crate::Verdict::Allow => "ALLOW",
                     };
                     println!(
-                        "\nResult:       {} MATCHED — action would be {}",
-                        "\x1b[31mMATCHED\x1b[0m", decision
+                        "\nResult:       \x1b[31mMATCHED\x1b[0m MATCHED — action would be {}",
+                        decision
                     );
                     if !rule.correction.is_empty() {
                         println!("Correction:   {}", rule.correction);

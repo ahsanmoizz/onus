@@ -356,6 +356,7 @@ impl AuditTrail {
     }
 
     /// Record a single action in the audit trail with hash chaining.
+    #[allow(clippy::too_many_arguments)]
     pub fn record_action(
         &mut self,
         session_id: &str,
@@ -845,6 +846,7 @@ impl AuditTrail {
     // --- Approval system (Phase 5) ---
 
     /// Create a pending approval record for an escalated action.
+    #[allow(clippy::too_many_arguments)]
     pub fn create_pending_approval(
         &mut self,
         binding: &ApprovalBinding,

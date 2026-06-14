@@ -96,20 +96,19 @@ fn run_heuristics(request: &ActionRequest) -> Option<HeuristicResult> {
     }
 
     // File write magnitude: large content.
-    if request.action.action_type == crate::ActionType::FileWrite
-        || request.action.action_type == crate::ActionType::FileDelete
+    if (request.action.action_type == crate::ActionType::FileWrite
+        || request.action.action_type == crate::ActionType::FileDelete)
+        && payload_len > 10000
     {
-        if payload_len > 10000 {
-            return Some(HeuristicResult {
-                id: "MAGNITUDE_001".into(),
-                name: "large-command".into(),
-                correction: format!(
-                    "Large file operation ({} bytes). Confirm this is the expected scope.",
-                    payload_len
-                ),
-                decision: Verdict::Warn,
-            });
-        }
+        return Some(HeuristicResult {
+            id: "MAGNITUDE_001".into(),
+            name: "large-command".into(),
+            correction: format!(
+                "Large file operation ({} bytes). Confirm this is the expected scope.",
+                payload_len
+            ),
+            decision: Verdict::Warn,
+        });
     }
 
     // Network/API call magnitude: multiple URLs.
@@ -135,7 +134,7 @@ fn run_heuristics(request: &ActionRequest) -> Option<HeuristicResult> {
     // does not match a deterministic rule exactly.
     if request.action.action_type == crate::ActionType::DbMutation {
         let upper = payload_str.to_ascii_uppercase();
-        let touches_many_rows = upper.contains(" WHERE ") == false
+        let touches_many_rows = !upper.contains(" WHERE ")
             && (upper.contains("UPDATE ") || upper.contains("DELETE FROM "));
         if touches_many_rows {
             return Some(HeuristicResult {
@@ -219,12 +218,12 @@ impl PolicyEngine {
             }
 
             // Track the worst verdict.
-            let is_worse = match (&worst_verdict, &rule.decision) {
-                (Verdict::Allow, _) => true,
-                (Verdict::Warn, Verdict::Block | Verdict::Escalate) => true,
-                (Verdict::Escalate, Verdict::Block) => true,
-                _ => false,
-            };
+            let is_worse = matches!(
+                (&worst_verdict, &rule.decision),
+                (Verdict::Allow, _)
+                    | (Verdict::Warn, Verdict::Block | Verdict::Escalate)
+                    | (Verdict::Escalate, Verdict::Block)
+            );
 
             if is_worse {
                 worst_verdict = rule.decision.clone();
@@ -252,14 +251,14 @@ impl PolicyEngine {
             if let Some(heuristic) = run_heuristics(request) {
                 if matches!(heuristic.decision, Verdict::Warn | Verdict::Block) {
                     worst_verdict = heuristic.decision;
-                    self.last_match.write().ok().map(|mut lm| {
+                    if let Ok(mut lm) = self.last_match.write() {
                         *lm = Some(MatchResult {
                             id: heuristic.id,
                             name: heuristic.name,
                             correction: heuristic.correction,
                             reversibility: Reversibility::Compensable,
-                        })
-                    });
+                        });
+                    }
                 }
             }
         }

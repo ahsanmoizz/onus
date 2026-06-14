@@ -50,8 +50,8 @@ pub fn run(args: LogArgs) -> anyhow::Result<()> {
     }
 
     println!(
-        "{:36}  {:8}  {:12}  {:6}  {:20}  {}",
-        "ID", "VERDICT", "TYPE", "SEQ", "TOOL", "RULE/INFO"
+        "{:36}  {:8}  {:12}  {:6}  {:20}  RULE/INFO",
+        "ID", "VERDICT", "TYPE", "SEQ", "TOOL"
     );
     println!("{}", "─".repeat(120));
 

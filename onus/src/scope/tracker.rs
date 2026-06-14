@@ -49,6 +49,12 @@ pub struct ScopeTracker {
     sessions: HashMap<String, SessionScope>,
 }
 
+impl Default for ScopeTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ScopeTracker {
     pub fn new() -> Self {
         Self {
@@ -352,10 +358,10 @@ fn extract_path(payload: &serde_json::Value) -> Option<String> {
         serde_json::Value::Object(map) => {
             if let Some(path) = map.get("path").and_then(|v| v.as_str()) {
                 Some(path.to_string())
-            } else if let Some(file_path) = map.get("file_path").and_then(|v| v.as_str()) {
-                Some(file_path.to_string())
             } else {
-                None
+                map.get("file_path")
+                    .and_then(|v| v.as_str())
+                    .map(|file_path| file_path.to_string())
             }
         }
         _ => None,

@@ -483,8 +483,7 @@ fn handle_daemon_message(state: &ServerState, msg: DaemonMessage) -> DaemonRespo
         rules_response: msg.server_command.as_ref().and_then(|cmd| {
             if matches!(cmd, ServerCommand::Rules) {
                 let rules = state.policy_engine.rules();
-                let summaries: Vec<RuleSummary> =
-                    rules.iter().map(|r| RuleSummary::from(r)).collect();
+                let summaries: Vec<RuleSummary> = rules.iter().map(RuleSummary::from).collect();
                 Some(crate::ipc::RulesResponse { rules: summaries })
             } else {
                 None

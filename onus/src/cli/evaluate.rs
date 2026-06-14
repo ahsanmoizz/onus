@@ -116,14 +116,7 @@ fn translate_hook(hook: HookInput) -> ActionRequest {
         "read" | "view" => crate::ActionType::FileRead,
         "git" | "github" => crate::ActionType::Git,
         "web_fetch" | "websearch" | "web" => crate::ActionType::Network,
-        _ => {
-            // If the hook input contains a "command"-like key, treat as shell
-            if hook.input.get("command").and_then(|v| v.as_str()).is_some() {
-                crate::ActionType::Shell
-            } else {
-                crate::ActionType::Shell
-            }
-        }
+        _ => crate::ActionType::Shell,
     };
 
     // Build a payload that always includes the full input, plus
@@ -132,7 +125,7 @@ fn translate_hook(hook: HookInput) -> ActionRequest {
         .input
         .as_object()
         .cloned()
-        .unwrap_or_else(|| serde_json::Map::new());
+        .unwrap_or_else(serde_json::Map::new);
     if !hook.cwd.is_empty() {
         payload.insert("cwd".into(), serde_json::Value::String(hook.cwd));
     }

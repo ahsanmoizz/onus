@@ -48,8 +48,8 @@ pub fn run(args: SessionArgs) -> anyhow::Result<()> {
                 println!();
                 println!("Replay:");
                 println!(
-                    "{:>4}  {:8}  {:12}  {:20}  {}",
-                    "STEP", "VERDICT", "TYPE", "TOOL", "PAYLOAD"
+                    "{:>4}  {:8}  {:12}  {:20}  PAYLOAD",
+                    "STEP", "VERDICT", "TYPE", "TOOL"
                 );
                 println!("{}", "─".repeat(120));
                 for action in actions {

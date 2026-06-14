@@ -26,17 +26,17 @@ impl MerkleTree {
         // Keep hashing until we have a single root.
         // Handles the single-leaf case (creates one hash level) and the multi-level case.
         while current.len() > 1 || levels.len() == 1 {
-            let mut next_level = Vec::with_capacity((current.len() + 1) / 2);
+            let mut next_level = Vec::with_capacity(current.len().div_ceil(2));
 
             for pair in current.chunks(2) {
                 let mut hasher = Sha256::new();
-                hasher.update(&pair[0]);
+                hasher.update(pair[0]);
 
                 // If there's an odd number, duplicate the last element.
                 if pair.len() == 2 {
-                    hasher.update(&pair[1]);
+                    hasher.update(pair[1]);
                 } else {
-                    hasher.update(&pair[0]);
+                    hasher.update(pair[0]);
                 }
 
                 let result = hasher.finalize();

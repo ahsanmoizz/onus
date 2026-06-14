@@ -2,7 +2,7 @@
 
 use crate::audit::AuditTrail;
 use clap::Args;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Args)]
 pub struct DashboardArgs {
@@ -56,7 +56,7 @@ pub fn run(args: DashboardArgs) -> anyhow::Result<()> {
     }
 }
 
-fn render_actions_json(db_path: &PathBuf) -> anyhow::Result<String> {
+fn render_actions_json(db_path: &Path) -> anyhow::Result<String> {
     if !db_path.exists() {
         return Ok("[]".to_string());
     }
@@ -85,7 +85,7 @@ fn render_actions_json(db_path: &PathBuf) -> anyhow::Result<String> {
     Ok(serde_json::to_string(&rows)?)
 }
 
-fn render_index(db_path: &PathBuf, token: &str) -> anyhow::Result<String> {
+fn render_index(db_path: &Path, token: &str) -> anyhow::Result<String> {
     let actions_json = render_actions_json(db_path)?;
     Ok(format!(
         r#"<!doctype html>
