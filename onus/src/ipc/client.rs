@@ -45,7 +45,8 @@ impl OnusClient {
         let buf = read_message_raw(&mut self.stream).map_err(|e| e.to_string())?;
         let resp: DaemonResponse =
             serde_json::from_slice(&buf).map_err(|e| format!("Invalid response: {}", e))?;
-        resp.action_response.ok_or_else(|| "No action response".into())
+        resp.action_response
+            .ok_or_else(|| "No action response".into())
     }
 
     /// Send a session command (start/end).
@@ -61,7 +62,8 @@ impl OnusClient {
         let buf = read_message_raw(&mut self.stream).map_err(|e| e.to_string())?;
         let resp: DaemonResponse =
             serde_json::from_slice(&buf).map_err(|e| format!("Invalid response: {}", e))?;
-        resp.session_response.ok_or_else(|| "No session response".into())
+        resp.session_response
+            .ok_or_else(|| "No session response".into())
     }
 
     /// Get daemon status.
@@ -77,7 +79,8 @@ impl OnusClient {
         let buf = read_message_raw(&mut self.stream).map_err(|e| e.to_string())?;
         let resp: DaemonResponse =
             serde_json::from_slice(&buf).map_err(|e| format!("Invalid response: {}", e))?;
-        resp.status_response.ok_or_else(|| "No status response".into())
+        resp.status_response
+            .ok_or_else(|| "No status response".into())
     }
 
     /// Get loaded rules from daemon.
@@ -93,7 +96,8 @@ impl OnusClient {
         let buf = read_message_raw(&mut self.stream).map_err(|e| e.to_string())?;
         let resp: DaemonResponse =
             serde_json::from_slice(&buf).map_err(|e| format!("Invalid response: {}", e))?;
-        resp.rules_response.ok_or_else(|| "No rules response".into())
+        resp.rules_response
+            .ok_or_else(|| "No rules response".into())
     }
 
     /// Request graceful daemon shutdown.
@@ -113,11 +117,9 @@ impl OnusClient {
 fn connect_stream(path: &str) -> Result<Box<dyn Stream>, String> {
     use std::os::unix::net::UnixStream;
     use std::time::Duration;
-    let stream = UnixStream::connect(path)
-        .map_err(|e| format!("Cannot connect to {}: {}", path, e))?;
-    stream
-        .set_read_timeout(Some(Duration::from_secs(30)))
-        .ok();
+    let stream =
+        UnixStream::connect(path).map_err(|e| format!("Cannot connect to {}: {}", path, e))?;
+    stream.set_read_timeout(Some(Duration::from_secs(30))).ok();
     Ok(Box::new(stream))
 }
 
@@ -125,9 +127,7 @@ fn connect_stream(path: &str) -> Result<Box<dyn Stream>, String> {
 fn connect_stream(path: &str) -> Result<Box<dyn Stream>, String> {
     use std::os::windows::io::FromRawHandle;
     use winapi::um::fileapi::CreateFileW;
-    use winapi::um::winnt::{
-        FILE_SHARE_READ, FILE_SHARE_WRITE, GENERIC_READ, GENERIC_WRITE,
-    };
+    use winapi::um::winnt::{FILE_SHARE_READ, FILE_SHARE_WRITE, GENERIC_READ, GENERIC_WRITE};
 
     let wide: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
     let handle = unsafe {

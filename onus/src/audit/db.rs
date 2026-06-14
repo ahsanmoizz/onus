@@ -1,4 +1,4 @@
-//! Audit trail — SQLite-backed immutable record of every agent action.
+//! Audit trail — SQLite-backed tamper-evident record of each governed action.
 //! Each action is hash-chained for tamper evidence; sessions track summary stats.
 //!
 //! Schema:
@@ -11,6 +11,8 @@
 //!            started_at TEXT, ended_at TEXT, total_actions INTEGER DEFAULT 0,
 //!            blocked_actions INTEGER DEFAULT 0, escalated_actions INTEGER DEFAULT 0)
 
+use crate::security::{self, ApprovalBinding};
+use crate::task_contract::{CompletionEvidence, CompletionStatus, TaskContract};
 use crate::Verdict;
 use rusqlite::{params, Connection};
 use serde::Serialize;
@@ -27,6 +29,8 @@ pub struct ActionRecord {
     pub action_type: String,
     pub tool_name: Option<String>,
     pub payload: String,
+    pub payload_hash: String,
+    pub payload_classification: String,
     pub verdict: String,
     pub rule_id: Option<String>,
     pub correction: Option<String>,
@@ -157,6 +161,8 @@ impl AuditTrail {
                 sequence INTEGER NOT NULL,
                 action_type TEXT NOT NULL,
                 payload TEXT NOT NULL,
+                payload_hash TEXT NOT NULL DEFAULT '',
+                payload_classification TEXT NOT NULL DEFAULT '{}',
                 tool_name TEXT,
                 verdict TEXT NOT NULL,
                 rule_id TEXT,
@@ -171,6 +177,19 @@ impl AuditTrail {
             CREATE INDEX IF NOT EXISTS idx_actions_created_at ON actions(created_at_unix);
             CREATE INDEX IF NOT EXISTS idx_actions_verdict ON actions(verdict);
 
+            CREATE TABLE IF NOT EXISTS task_contracts (
+                session_id TEXT PRIMARY KEY,
+                contract_hash TEXT NOT NULL,
+                contract_json TEXT NOT NULL,
+                original_prompt TEXT NOT NULL,
+                normalized_objective TEXT NOT NULL,
+                environment_identity TEXT NOT NULL,
+                policy_version TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                completed_at INTEGER,
+                completion_status TEXT
+            );
+
             CREATE TABLE IF NOT EXISTS pending_approvals (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 action_id TEXT NOT NULL UNIQUE,
@@ -178,6 +197,12 @@ impl AuditTrail {
                 action_type TEXT NOT NULL,
                 tool_name TEXT,
                 payload TEXT NOT NULL,
+                canonical_payload_hash TEXT NOT NULL DEFAULT '',
+                task_contract_hash TEXT NOT NULL DEFAULT '',
+                policy_version TEXT NOT NULL DEFAULT '',
+                environment_identity TEXT NOT NULL DEFAULT '',
+                expires_at INTEGER NOT NULL DEFAULT 0,
+                approver TEXT,
                 rule_id TEXT NOT NULL,
                 rule_name TEXT NOT NULL,
                 correction TEXT NOT NULL,
@@ -187,8 +212,51 @@ impl AuditTrail {
             );
 
             CREATE INDEX IF NOT EXISTS idx_pending_status ON pending_approvals(status);
-            "
+            ",
         )?;
+        ensure_column(&conn, "actions", "payload_hash", "TEXT NOT NULL DEFAULT ''")?;
+        ensure_column(
+            &conn,
+            "actions",
+            "payload_classification",
+            "TEXT NOT NULL DEFAULT '{}'",
+        )?;
+        ensure_column(
+            &conn,
+            "pending_approvals",
+            "canonical_payload_hash",
+            "TEXT NOT NULL DEFAULT ''",
+        )?;
+        ensure_column(
+            &conn,
+            "pending_approvals",
+            "task_contract_hash",
+            "TEXT NOT NULL DEFAULT ''",
+        )?;
+        ensure_column(
+            &conn,
+            "pending_approvals",
+            "policy_version",
+            "TEXT NOT NULL DEFAULT ''",
+        )?;
+        ensure_column(
+            &conn,
+            "pending_approvals",
+            "environment_identity",
+            "TEXT NOT NULL DEFAULT ''",
+        )?;
+        ensure_column(
+            &conn,
+            "pending_approvals",
+            "expires_at",
+            "INTEGER NOT NULL DEFAULT 0",
+        )?;
+        ensure_column(&conn, "pending_approvals", "approver", "TEXT")?;
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_pending_binding
+             ON pending_approvals(session_id, action_id, canonical_payload_hash, task_contract_hash, policy_version, environment_identity, status);",
+        )?;
+        crate::memory::ensure_schema(&conn)?;
 
         Ok(Self { conn })
     }
@@ -208,9 +276,64 @@ impl AuditTrail {
                 (session_id, agent_name, agent_version, task_description,
                  workspace_root, status, started_at)
              VALUES (?1, ?2, ?3, ?4, ?5, 'active', ?6)",
-            params![session_id, agent_name, agent_version, task_description, workspace_root, now],
+            params![
+                session_id,
+                agent_name,
+                agent_version,
+                task_description,
+                workspace_root,
+                now
+            ],
         )?;
         Ok(())
+    }
+
+    pub fn remember_session_intake(
+        &mut self,
+        session_id: &str,
+        workspace_root: &str,
+        original_prompt: &str,
+        normalized_objective: &str,
+    ) -> anyhow::Result<()> {
+        crate::memory::remember_session_intake(
+            &self.conn,
+            crate::memory::MemoryScope::for_workspace(workspace_root, Some(session_id.to_string())),
+            original_prompt,
+            normalized_objective,
+        )
+    }
+
+    pub fn relevant_memory_context(
+        &self,
+        workspace_root: &str,
+        session_id: Option<&str>,
+        query: &str,
+        limit: usize,
+    ) -> anyhow::Result<Vec<crate::memory::MemoryContext>> {
+        crate::memory::retrieve_relevant_conn(
+            &self.conn,
+            &crate::memory::MemoryScope::for_workspace(
+                workspace_root,
+                session_id.map(|s| s.to_string()),
+            ),
+            query,
+            limit,
+        )
+    }
+
+    pub fn remember_incident(
+        &mut self,
+        session_id: &str,
+        workspace_root: &str,
+        key: &str,
+        value: serde_json::Value,
+    ) -> anyhow::Result<()> {
+        crate::memory::remember_incident(
+            &self.conn,
+            crate::memory::MemoryScope::for_workspace(workspace_root, Some(session_id.to_string())),
+            key,
+            value,
+        )
     }
 
     /// End a session.
@@ -244,7 +367,7 @@ impl AuditTrail {
         rule_id: Option<&str>,
         correction: Option<&str>,
         _latency_us: u64,
-    ) -> anyhow::Result<String> {
+    ) -> anyhow::Result<(String, String)> {
         // Generate a unique action ID
         use uuid::Uuid;
         let action_id = Uuid::new_v4().to_string();
@@ -259,7 +382,8 @@ impl AuditTrail {
                 params![session_id],
                 |row| row.get::<_, i64>(0),
             )
-            .unwrap_or(0) > 0;
+            .unwrap_or(0)
+            > 0;
 
         if !session_exists {
             self.conn.execute(
@@ -280,23 +404,41 @@ impl AuditTrail {
             )
             .unwrap_or_default();
 
+        let classified = security::classify_payload_str(payload);
+        let stored_payload = classified.redacted;
+        let payload_hash = classified.payload_hash;
+        let payload_classification = classified.classification;
         let verdict_str = format!("{}", verdict);
 
-        // Compute hash: action_id|session_id|sequence|action_type|payload|verdict|prev_hash
+        // Compute hash: action_id|session_id|sequence|action_type|redacted_payload|verdict|prev_hash
         let hash_input = format!(
             "{}|{}|{}|{}|{}|{}|{}",
-            action_id, session_id, sequence, action_type, payload, verdict_str, prev_hash
+            action_id, session_id, sequence, action_type, stored_payload, verdict_str, prev_hash
         );
         let hash = hex::encode(Sha256::digest(hash_input.as_bytes()));
 
         self.conn.execute(
             "INSERT INTO actions
-                (action_id, session_id, sequence, action_type, payload, tool_name,
+                (action_id, session_id, sequence, action_type, payload, payload_hash,
+                 payload_classification, tool_name,
                  verdict, rule_id, correction, prev_hash, hash, created_at, created_at_unix)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
-                action_id, session_id, sequence, action_type, payload, tool_name,
-                verdict_str, rule_id, correction, prev_hash, hash, now_iso, now
+                action_id,
+                session_id,
+                sequence,
+                action_type,
+                stored_payload,
+                payload_hash,
+                payload_classification,
+                tool_name,
+                verdict_str,
+                rule_id,
+                correction,
+                prev_hash,
+                hash,
+                now_iso,
+                now
             ],
         )?;
 
@@ -309,20 +451,25 @@ impl AuditTrail {
         self.conn.execute(
             &format!(
                 "UPDATE sessions SET total_actions = total_actions + 1 {} WHERE session_id = ?1",
-                if increment.is_empty() { String::new() } else { format!(", {}", increment) }
+                if increment.is_empty() {
+                    String::new()
+                } else {
+                    format!(", {}", increment)
+                }
             ),
             params![session_id],
         )?;
 
-        Ok(action_id)
+        Ok((action_id, payload_hash))
     }
 
     /// Get recent actions across all sessions.
     pub fn get_recent_actions(&self, limit: u32) -> anyhow::Result<Vec<ActionRecord>> {
         let mut stmt = self.conn.prepare(
-            "SELECT action_id, session_id, sequence, action_type, payload, tool_name,
+            "SELECT action_id, session_id, sequence, action_type, payload, payload_hash,
+                    payload_classification, tool_name,
                     verdict, rule_id, correction, prev_hash, hash, created_at
-             FROM actions ORDER BY id DESC LIMIT ?1"
+             FROM actions ORDER BY id DESC LIMIT ?1",
         )?;
 
         let rows = stmt.query_map(params![limit], |row| {
@@ -332,13 +479,15 @@ impl AuditTrail {
                 sequence: row.get::<_, i64>(2)? as u64,
                 action_type: row.get(3)?,
                 payload: row.get(4)?,
-                tool_name: row.get(5)?,
-                verdict: row.get(6)?,
-                rule_id: row.get(7)?,
-                correction: row.get(8)?,
-                prev_hash: row.get(9)?,
-                hash: row.get(10)?,
-                created_at: row.get(11)?,
+                payload_hash: row.get(5)?,
+                payload_classification: row.get(6)?,
+                tool_name: row.get(7)?,
+                verdict: row.get(8)?,
+                rule_id: row.get(9)?,
+                correction: row.get(10)?,
+                prev_hash: row.get(11)?,
+                hash: row.get(12)?,
+                created_at: row.get(13)?,
             })
         })?;
 
@@ -352,9 +501,10 @@ impl AuditTrail {
     /// Get actions for a specific session.
     pub fn get_session_actions(&self, session_id: &str) -> anyhow::Result<Vec<ActionRecord>> {
         let mut stmt = self.conn.prepare(
-            "SELECT action_id, session_id, sequence, action_type, payload, tool_name,
+            "SELECT action_id, session_id, sequence, action_type, payload, payload_hash,
+                    payload_classification, tool_name,
                     verdict, rule_id, correction, prev_hash, hash, created_at
-             FROM actions WHERE session_id = ?1 ORDER BY id ASC"
+             FROM actions WHERE session_id = ?1 ORDER BY id ASC",
         )?;
 
         let rows = stmt.query_map(params![session_id], |row| {
@@ -364,13 +514,15 @@ impl AuditTrail {
                 sequence: row.get::<_, i64>(2)? as u64,
                 action_type: row.get(3)?,
                 payload: row.get(4)?,
-                tool_name: row.get(5)?,
-                verdict: row.get(6)?,
-                rule_id: row.get(7)?,
-                correction: row.get(8)?,
-                prev_hash: row.get(9)?,
-                hash: row.get(10)?,
-                created_at: row.get(11)?,
+                payload_hash: row.get(5)?,
+                payload_classification: row.get(6)?,
+                tool_name: row.get(7)?,
+                verdict: row.get(8)?,
+                rule_id: row.get(9)?,
+                correction: row.get(10)?,
+                prev_hash: row.get(11)?,
+                hash: row.get(12)?,
+                created_at: row.get(13)?,
             })
         })?;
 
@@ -387,7 +539,7 @@ impl AuditTrail {
             "SELECT session_id, agent_name, agent_version, task_description,
                     workspace_root, status, started_at, ended_at,
                     total_actions, blocked_actions, escalated_actions
-             FROM sessions WHERE session_id = ?1"
+             FROM sessions WHERE session_id = ?1",
         )?;
 
         let mut rows = stmt.query_map(params![session_id], |row| {
@@ -418,7 +570,7 @@ impl AuditTrail {
             "SELECT session_id, agent_name, agent_version, task_description,
                     workspace_root, status, started_at, ended_at,
                     total_actions, blocked_actions, escalated_actions
-             FROM sessions ORDER BY started_at DESC"
+             FROM sessions ORDER BY started_at DESC",
         )?;
 
         let rows = stmt.query_map([], |row| {
@@ -448,7 +600,9 @@ impl AuditTrail {
     pub fn get_status(&self) -> anyhow::Result<StatusSummary> {
         let total_actions: i64 = self
             .conn
-            .query_row("SELECT COALESCE(COUNT(*), 0) FROM actions", [], |row| row.get(0))
+            .query_row("SELECT COALESCE(COUNT(*), 0) FROM actions", [], |row| {
+                row.get(0)
+            })
             .unwrap_or(0);
         let blocked_actions: i64 = self
             .conn
@@ -524,7 +678,7 @@ impl AuditTrail {
     pub fn verify_all_actions(&self) -> anyhow::Result<Vec<(String, String)>> {
         let mut stmt = self.conn.prepare(
             "SELECT action_id, session_id, sequence, action_type, payload, verdict, prev_hash, hash
-             FROM actions ORDER BY id ASC"
+             FROM actions ORDER BY id ASC",
         )?;
 
         let rows = stmt.query_map([], |row| {
@@ -544,7 +698,8 @@ impl AuditTrail {
         let mut expected_prev = String::new();
 
         for row in rows {
-            let (action_id, session_id, sequence, action_type, payload, verdict, prev_hash, hash) = row?;
+            let (action_id, session_id, sequence, action_type, payload, verdict, prev_hash, hash) =
+                row?;
             let hash_input = format!(
                 "{}|{}|{}|{}|{}|{}|{}",
                 action_id, session_id, sequence, action_type, payload, verdict, expected_prev
@@ -552,10 +707,19 @@ impl AuditTrail {
             let expected_hash = hex::encode(Sha256::digest(hash_input.as_bytes()));
 
             if hash != expected_hash {
-                bad.push((action_id.clone(), format!("hash mismatch: stored={}, expected={}", hash, expected_hash)));
+                bad.push((
+                    action_id.clone(),
+                    format!("hash mismatch: stored={}, expected={}", hash, expected_hash),
+                ));
             }
             if prev_hash != expected_prev {
-                bad.push((action_id.clone(), format!("prev_hash mismatch: stored={}, expected={}", prev_hash, expected_prev)));
+                bad.push((
+                    action_id.clone(),
+                    format!(
+                        "prev_hash mismatch: stored={}, expected={}",
+                        prev_hash, expected_prev
+                    ),
+                ));
             }
 
             expected_prev = hash;
@@ -566,10 +730,116 @@ impl AuditTrail {
 
     /// Get the total count of actions.
     pub fn action_count(&self) -> anyhow::Result<u64> {
-        let count: i64 = self
-            .conn
-            .query_row("SELECT COALESCE(COUNT(*), 0) FROM actions", [], |row| row.get(0))?;
+        let count: i64 =
+            self.conn
+                .query_row("SELECT COALESCE(COUNT(*), 0) FROM actions", [], |row| {
+                    row.get(0)
+                })?;
         Ok(count as u64)
+    }
+
+    pub fn save_task_contract(&mut self, contract: &TaskContract) -> anyhow::Result<TaskContract> {
+        let finalized = contract.clone().finalized();
+        if !finalized.verify_hash() {
+            anyhow::bail!("Task contract canonical hash verification failed");
+        }
+        let now = now_timestamp();
+        let contract_json = serde_json::to_string(&finalized)?;
+        self.conn.execute(
+            "INSERT OR REPLACE INTO task_contracts
+                (session_id, contract_hash, contract_json, original_prompt, normalized_objective,
+                 environment_identity, policy_version, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                finalized.session_id,
+                finalized.canonical_hash,
+                contract_json,
+                finalized.original_prompt,
+                finalized.normalized_objective,
+                finalized.environment_identity,
+                finalized.policy_version,
+                now
+            ],
+        )?;
+        Ok(finalized)
+    }
+
+    pub fn get_task_contract(&self, session_id: &str) -> anyhow::Result<Option<TaskContract>> {
+        let json: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT contract_json FROM task_contracts WHERE session_id = ?1",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .ok();
+        match json {
+            Some(raw) => {
+                let contract: TaskContract = serde_json::from_str(&raw)?;
+                if !contract.verify_hash() {
+                    anyhow::bail!("Stored task contract hash does not match canonical content");
+                }
+                Ok(Some(contract))
+            }
+            None => Ok(None),
+        }
+    }
+
+    pub fn session_touched_paths(&self, session_id: &str) -> anyhow::Result<Vec<String>> {
+        let actions = self.get_session_actions(session_id)?;
+        let mut paths = Vec::new();
+        for action in actions {
+            let payload: serde_json::Value =
+                serde_json::from_str(&action.payload).unwrap_or(serde_json::Value::Null);
+            let action_type = match action.action_type.as_str() {
+                "file_write" => crate::ActionType::FileWrite,
+                "file_delete" => crate::ActionType::FileDelete,
+                "file_read" => crate::ActionType::FileRead,
+                "db_mutation" => crate::ActionType::DbMutation,
+                _ => crate::ActionType::Shell,
+            };
+            let synthetic = crate::ipc::Action {
+                action_type,
+                tool: action.tool_name.unwrap_or_default(),
+                payload,
+            };
+            if let Some(path) = crate::task_contract::extract_action_path(&synthetic) {
+                if !paths.contains(&path) {
+                    paths.push(path);
+                }
+            }
+        }
+        Ok(paths)
+    }
+
+    pub fn complete_task_contract(
+        &mut self,
+        session_id: &str,
+        evidence: &[CompletionEvidence],
+    ) -> anyhow::Result<CompletionStatus> {
+        let contract = self
+            .get_task_contract(session_id)?
+            .ok_or_else(|| anyhow::anyhow!("No task contract found for session {}", session_id))?;
+        let status = crate::task_contract::verify_completion(&contract, evidence);
+        let status_text = match &status {
+            CompletionStatus::CompletedVerified => "COMPLETED_VERIFIED".to_string(),
+            CompletionStatus::HumanReviewRequired { missing_evidence } => {
+                format!("HUMAN_REVIEW_REQUIRED:{}", missing_evidence.join(","))
+            }
+        };
+        self.conn.execute(
+            "UPDATE task_contracts
+             SET completed_at = ?1, completion_status = ?2
+             WHERE session_id = ?3",
+            params![now_timestamp(), status_text, session_id],
+        )?;
+        Ok(status)
+    }
+
+    #[cfg(test)]
+    pub fn break_actions_table_for_test(&mut self) -> anyhow::Result<()> {
+        self.conn.execute("DROP TABLE actions", [])?;
+        Ok(())
     }
 
     // --- Approval system (Phase 5) ---
@@ -577,8 +847,7 @@ impl AuditTrail {
     /// Create a pending approval record for an escalated action.
     pub fn create_pending_approval(
         &mut self,
-        action_id: &str,
-        session_id: &str,
+        binding: &ApprovalBinding,
         action_type: &str,
         tool_name: Option<&str>,
         payload: &str,
@@ -587,22 +856,41 @@ impl AuditTrail {
         correction: &str,
     ) -> anyhow::Result<()> {
         let now = now_timestamp();
+        let redacted_payload = security::classify_payload_str(payload).redacted;
         self.conn.execute(
             "INSERT OR IGNORE INTO pending_approvals
                 (action_id, session_id, action_type, tool_name, payload,
-                 rule_id, rule_name, correction, status, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending', ?9)",
-            params![action_id, session_id, action_type, tool_name, payload, rule_id, rule_name, correction, now],
+                 canonical_payload_hash, task_contract_hash, policy_version,
+                 environment_identity, expires_at, rule_id, rule_name, correction, status, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 'pending', ?14)",
+            params![
+                binding.action_id,
+                binding.session_id,
+                action_type,
+                tool_name,
+                redacted_payload,
+                binding.canonical_payload_hash,
+                binding.task_contract_hash,
+                binding.policy_version,
+                binding.environment_identity,
+                binding.expires_at,
+                rule_id,
+                rule_name,
+                correction,
+                now
+            ],
         )?;
         Ok(())
     }
 
     /// Approve a pending action.
-    pub fn approve_action(&mut self, action_id: &str) -> anyhow::Result<bool> {
+    pub fn approve_action(&mut self, action_id: &str, approver: &str) -> anyhow::Result<bool> {
         let now = now_timestamp();
         let rows = self.conn.execute(
-            "UPDATE pending_approvals SET status = 'approved', resolved_at = ?1 WHERE action_id = ?2 AND status = 'pending'",
-            params![now, action_id],
+            "UPDATE pending_approvals
+             SET status = 'approved', resolved_at = ?1, approver = ?2
+             WHERE action_id = ?3 AND status = 'pending' AND expires_at > ?1",
+            params![now, approver, action_id],
         )?;
         Ok(rows > 0)
     }
@@ -630,30 +918,58 @@ impl AuditTrail {
         Ok(status.as_deref() == Some("approved"))
     }
 
+    pub fn find_approved_approval(
+        &self,
+        binding: &ApprovalBinding,
+    ) -> anyhow::Result<Option<PendingApproval>> {
+        let now = now_timestamp();
+        let mut stmt = self.conn.prepare(
+            "SELECT id, action_id, session_id, action_type, tool_name, payload,
+                    canonical_payload_hash, task_contract_hash, policy_version,
+                    environment_identity, expires_at, approver,
+                    rule_id, rule_name, correction, status, created_at, resolved_at
+             FROM pending_approvals
+             WHERE session_id = ?1
+               AND action_id = ?2
+               AND canonical_payload_hash = ?3
+               AND task_contract_hash = ?4
+               AND policy_version = ?5
+               AND environment_identity = ?6
+               AND status = 'approved'
+               AND expires_at > ?7
+             ORDER BY resolved_at DESC
+             LIMIT 1",
+        )?;
+
+        let mut rows = stmt.query_map(
+            params![
+                binding.session_id,
+                binding.action_id,
+                binding.canonical_payload_hash,
+                binding.task_contract_hash,
+                binding.policy_version,
+                binding.environment_identity,
+                now
+            ],
+            pending_from_row,
+        )?;
+        match rows.next() {
+            Some(row) => Ok(Some(row?)),
+            None => Ok(None),
+        }
+    }
+
     /// Get all pending approvals.
     pub fn get_pending_approvals(&self) -> anyhow::Result<Vec<PendingApproval>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, action_id, session_id, action_type, tool_name, payload,
+                    canonical_payload_hash, task_contract_hash, policy_version,
+                    environment_identity, expires_at, approver,
                     rule_id, rule_name, correction, status, created_at, resolved_at
-             FROM pending_approvals ORDER BY created_at DESC"
+             FROM pending_approvals ORDER BY created_at DESC",
         )?;
 
-        let rows = stmt.query_map([], |row| {
-            Ok(PendingApproval {
-                id: row.get(0)?,
-                action_id: row.get(1)?,
-                session_id: row.get(2)?,
-                action_type: row.get(3)?,
-                tool_name: row.get(4)?,
-                payload: row.get(5)?,
-                rule_id: row.get(6)?,
-                rule_name: row.get(7)?,
-                correction: row.get(8)?,
-                status: row.get(9)?,
-                created_at: row.get(10)?,
-                resolved_at: row.get(11)?,
-            })
-        })?;
+        let rows = stmt.query_map([], pending_from_row)?;
 
         let mut approvals = Vec::new();
         for row in rows {
@@ -671,6 +987,12 @@ pub struct PendingApproval {
     pub action_type: String,
     pub tool_name: Option<String>,
     pub payload: String,
+    pub canonical_payload_hash: String,
+    pub task_contract_hash: String,
+    pub policy_version: String,
+    pub environment_identity: String,
+    pub expires_at: i64,
+    pub approver: Option<String>,
     pub rule_id: String,
     pub rule_name: String,
     pub correction: String,
@@ -679,8 +1001,187 @@ pub struct PendingApproval {
     pub resolved_at: Option<i64>,
 }
 
+fn ensure_column(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    definition: &str,
+) -> anyhow::Result<()> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({})", table))?;
+    let columns = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    for existing in columns {
+        if existing? == column {
+            return Ok(());
+        }
+    }
+    conn.execute(
+        &format!("ALTER TABLE {} ADD COLUMN {} {}", table, column, definition),
+        [],
+    )?;
+    Ok(())
+}
+
+fn pending_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PendingApproval> {
+    Ok(PendingApproval {
+        id: row.get(0)?,
+        action_id: row.get(1)?,
+        session_id: row.get(2)?,
+        action_type: row.get(3)?,
+        tool_name: row.get(4)?,
+        payload: row.get(5)?,
+        canonical_payload_hash: row.get(6)?,
+        task_contract_hash: row.get(7)?,
+        policy_version: row.get(8)?,
+        environment_identity: row.get(9)?,
+        expires_at: row.get(10)?,
+        approver: row.get(11)?,
+        rule_id: row.get(12)?,
+        rule_name: row.get(13)?,
+        correction: row.get(14)?,
+        status: row.get(15)?,
+        created_at: row.get(16)?,
+        resolved_at: row.get(17)?,
+    })
+}
+
 impl Drop for AuditTrail {
     fn drop(&mut self) {
         let _ = self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)", []);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn temp_db(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("onus-{}-{}.db", name, uuid::Uuid::new_v4()))
+    }
+
+    fn binding(payload_hash: &str) -> ApprovalBinding {
+        ApprovalBinding {
+            session_id: "session-1".to_string(),
+            task_contract_hash: "task-hash".to_string(),
+            action_id: security::approval_action_id("session-1", "Write", payload_hash),
+            canonical_payload_hash: payload_hash.to_string(),
+            policy_version: "policy-v1".to_string(),
+            environment_identity: "env-1".to_string(),
+            expires_at: security::now_unix() + 60,
+            approver: None,
+        }
+    }
+
+    #[test]
+    fn record_action_redacts_payload_before_persistence() {
+        let path = temp_db("redaction");
+        let mut audit = AuditTrail::open(&path).unwrap();
+        let payload = serde_json::json!({
+            "path": "demo.txt",
+            "token": "raw-token-value",
+            "content": "AWS_SECRET_ACCESS_KEY=\"abc123\""
+        })
+        .to_string();
+
+        let (_action_id, payload_hash) = audit
+            .record_action(
+                "session-1",
+                1,
+                "file_write",
+                "Write",
+                &payload,
+                &Verdict::Allow,
+                None,
+                None,
+                10,
+            )
+            .unwrap();
+
+        let action = audit.get_session_actions("session-1").unwrap().remove(0);
+        assert_eq!(action.payload_hash, payload_hash);
+        assert!(!action.payload.contains("raw-token-value"));
+        assert!(!action.payload.contains("abc123"));
+        assert!(action.payload.contains(security::REDACTED));
+        assert!(action
+            .payload_classification
+            .contains("\"contains_sensitive\":true"));
+        assert!(audit.verify_chain("session-1").unwrap().is_empty());
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn approval_lookup_requires_exact_binding_and_rejects_changed_payload() {
+        let path = temp_db("approval-binding");
+        let mut audit = AuditTrail::open(&path).unwrap();
+        let approved = binding("payload-hash-1");
+
+        audit
+            .create_pending_approval(
+                &approved,
+                "mcp",
+                Some("Write"),
+                r#"{"content":"safe"}"#,
+                "RULE_1",
+                "needs-approval",
+                "Approve this action",
+            )
+            .unwrap();
+        assert!(audit.approve_action(&approved.action_id, "alice").unwrap());
+
+        let exact = audit.find_approved_approval(&approved).unwrap().unwrap();
+        assert_eq!(exact.approver.as_deref(), Some("alice"));
+
+        let mut changed_payload = approved.clone();
+        changed_payload.canonical_payload_hash = "payload-hash-2".to_string();
+        changed_payload.action_id = security::approval_action_id(
+            "session-1",
+            "Write",
+            &changed_payload.canonical_payload_hash,
+        );
+        assert!(audit
+            .find_approved_approval(&changed_payload)
+            .unwrap()
+            .is_none());
+
+        let mut changed_policy = approved.clone();
+        changed_policy.policy_version = "policy-v2".to_string();
+        assert!(audit
+            .find_approved_approval(&changed_policy)
+            .unwrap()
+            .is_none());
+
+        let mut changed_env = approved.clone();
+        changed_env.environment_identity = "env-2".to_string();
+        assert!(audit
+            .find_approved_approval(&changed_env)
+            .unwrap()
+            .is_none());
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn expired_approval_cannot_be_approved_or_reused() {
+        let path = temp_db("expired-approval");
+        let mut audit = AuditTrail::open(&path).unwrap();
+        let mut expired = binding("payload-hash-expired");
+        expired.expires_at = security::now_unix() - 1;
+
+        audit
+            .create_pending_approval(
+                &expired,
+                "mcp",
+                Some("Write"),
+                r#"{"content":"safe"}"#,
+                "RULE_1",
+                "needs-approval",
+                "Approve this action",
+            )
+            .unwrap();
+        assert!(!audit.approve_action(&expired.action_id, "alice").unwrap());
+        assert!(audit.find_approved_approval(&expired).unwrap().is_none());
+
+        let _ = std::fs::remove_file(path);
     }
 }

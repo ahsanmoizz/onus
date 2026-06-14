@@ -1,14 +1,16 @@
 pub mod approvals;
+pub mod contract;
 pub mod daemon_cmd;
 pub mod dashboard;
 pub mod evaluate;
+pub mod intake;
 pub mod log_cmd;
 pub mod rules;
 pub mod session;
 pub mod shell;
 pub mod status;
-pub mod upgrade;
 pub mod uninstall;
+pub mod upgrade;
 pub mod verify;
 
 use clap::{Parser, Subcommand};
@@ -23,6 +25,7 @@ pub struct Cli {
 }
 
 #[derive(Subcommand)]
+#[allow(clippy::large_enum_variant)]
 pub enum Commands {
     /// Serve the local approval UI for pending escalations
     Approvals(approvals::ApprovalsArgs),
@@ -33,8 +36,14 @@ pub enum Commands {
     /// Start, stop, or check the Onus daemon
     Daemon(daemon_cmd::DaemonArgs),
 
+    /// Manage task contracts for governed sessions
+    Contract(contract::ContractArgs),
+
     /// Serve a local dashboard backed by the audit database
     Dashboard(dashboard::DashboardArgs),
+
+    /// Inspect an original prompt and optionally start a governed session
+    Intake(intake::IntakeArgs),
 
     /// Show daemon and session status
     Status,

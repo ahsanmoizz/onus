@@ -15,17 +15,20 @@ pub struct SessionArgs {
 }
 
 pub fn run(args: SessionArgs) -> anyhow::Result<()> {
-    let db_path = args.db.unwrap_or_else(|| {
-        crate::data_dir().join("audit.db")
-    });
+    let db_path = args
+        .db
+        .unwrap_or_else(|| crate::data_dir().join("audit.db"));
 
     let audit = AuditTrail::open(&db_path)?;
 
     match audit.get_session(&args.session_id)? {
         Some(session) => {
             println!("Session:        {}", session.id);
-            println!("Agent:          {} {}", session.agent_name,
-                     session.agent_version.as_deref().unwrap_or(""));
+            println!(
+                "Agent:          {} {}",
+                session.agent_name,
+                session.agent_version.as_deref().unwrap_or("")
+            );
             println!("Task:           {}", session.task_description);
             println!("Workspace:      {}", session.workspace_root);
             println!("──────────────────────────────────────────");
@@ -44,22 +47,22 @@ pub fn run(args: SessionArgs) -> anyhow::Result<()> {
             if !actions.is_empty() {
                 println!();
                 println!("Replay:");
-                println!("{:>4}  {:8}  {:12}  {:20}  {}", "STEP", "VERDICT", "TYPE", "TOOL", "PAYLOAD");
+                println!(
+                    "{:>4}  {:8}  {:12}  {:20}  {}",
+                    "STEP", "VERDICT", "TYPE", "TOOL", "PAYLOAD"
+                );
                 println!("{}", "─".repeat(120));
                 for action in actions {
                     let tool = action.tool_name.as_deref().unwrap_or("-");
-                    let mut payload = action.payload.replace('\n', "\\n");
+                    let mut payload = crate::security::mask_text_for_display(&action.payload)
+                        .replace('\n', "\\n");
                     if payload.len() > 140 {
                         payload.truncate(137);
                         payload.push_str("...");
                     }
                     println!(
                         "{:>4}  {:8}  {:12}  {:20}  {}",
-                        action.sequence,
-                        action.verdict,
-                        action.action_type,
-                        tool,
-                        payload
+                        action.sequence, action.verdict, action.action_type, tool, payload
                     );
                     if let Some(correction) = action.correction {
                         println!("      correction: {}", correction);

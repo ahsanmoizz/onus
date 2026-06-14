@@ -20,9 +20,9 @@ pub struct LogArgs {
 }
 
 pub fn run(args: LogArgs) -> anyhow::Result<()> {
-    let db_path = args.db.unwrap_or_else(|| {
-        crate::data_dir().join("audit.db")
-    });
+    let db_path = args
+        .db
+        .unwrap_or_else(|| crate::data_dir().join("audit.db"));
 
     if !db_path.exists() {
         println!("No audit data yet. Start the Onus daemon and run an agent session.");
@@ -49,14 +49,17 @@ pub fn run(args: LogArgs) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    println!("{:36}  {:8}  {:12}  {:6}  {:20}  {}", "ID", "VERDICT", "TYPE", "SEQ", "TOOL", "RULE/INFO");
+    println!(
+        "{:36}  {:8}  {:12}  {:6}  {:20}  {}",
+        "ID", "VERDICT", "TYPE", "SEQ", "TOOL", "RULE/INFO"
+    );
     println!("{}", "─".repeat(120));
 
     for action in &filtered {
         let verdict_styled = match action.verdict.as_str() {
-            "allow" => format!("\x1b[32m{}\x1b[0m", action.verdict),   // green
-            "warn" => format!("\x1b[33m{}\x1b[0m", action.verdict),    // yellow
-            "block" => format!("\x1b[31m{}\x1b[0m", action.verdict),   // red
+            "allow" => format!("\x1b[32m{}\x1b[0m", action.verdict), // green
+            "warn" => format!("\x1b[33m{}\x1b[0m", action.verdict),  // yellow
+            "block" => format!("\x1b[31m{}\x1b[0m", action.verdict), // red
             "escalate" => format!("\x1b[35m{}\x1b[0m", action.verdict), // magenta
             _ => action.verdict.clone(),
         };
@@ -67,12 +70,7 @@ pub fn run(args: LogArgs) -> anyhow::Result<()> {
 
         println!(
             "{:8}..  {}  {:12}  {:>4}  {:20}  {}",
-            short_id,
-            verdict_styled,
-            action.action_type,
-            action.sequence as i64,
-            tool,
-            rule_info,
+            short_id, verdict_styled, action.action_type, action.sequence as i64, tool, rule_info,
         );
 
         if let Some(ref correction) = action.correction {

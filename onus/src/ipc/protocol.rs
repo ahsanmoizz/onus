@@ -11,8 +11,8 @@ pub const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
 
 /// Write a length-prefixed JSON message to a stream.
 pub fn write_message<W: Write, T: Serialize>(writer: &mut W, message: &T) -> io::Result<()> {
-    let json = serde_json::to_vec(message)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let json =
+        serde_json::to_vec(message).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
     if json.len() > MAX_MESSAGE_SIZE {
         return Err(io::Error::new(
@@ -31,8 +31,7 @@ pub fn write_message<W: Write, T: Serialize>(writer: &mut W, message: &T) -> io:
 /// Read a length-prefixed JSON message from a stream.
 pub fn read_message<R: Read, T: DeserializeOwned>(reader: &mut R) -> io::Result<T> {
     let buf = read_message_raw(reader)?;
-    serde_json::from_slice(&buf)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+    serde_json::from_slice(&buf).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
 
 /// Read raw bytes of a length-prefixed message without deserializing.
@@ -80,6 +79,8 @@ mod tests {
             session_id: "test-session".into(),
             sequence: 1,
             decision: crate::Verdict::Block,
+            action_id: None,
+            canonical_payload_hash: None,
             rule_id: Some("SAFETY_001".into()),
             rule_name: Some("destructive-filesystem-command".into()),
             correction: Some("Blocked for safety".into()),

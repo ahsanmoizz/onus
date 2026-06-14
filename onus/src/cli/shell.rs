@@ -37,14 +37,19 @@ fn install(custom_path: Option<PathBuf>) -> anyhow::Result<()> {
     let script_path = scripts.join("onus-shell-wrapper.sh");
 
     // Write the shell wrapper content.
-    let content = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/scripts/onus-shell-wrapper.sh"));
+    let content = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/scripts/onus-shell-wrapper.sh"
+    ));
     std::fs::write(&script_path, content)?;
     println!("Onus shell wrapper installed at: {}", script_path.display());
 
     // Add source line to .bashrc / .zshrc.
     let source_line = format!("\n# Onus shell wrapper — intercepts commands through the AI agent firewall\nsource \"{}\"\n", script_path.display());
 
-    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_else(|_| ".".into());
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| ".".into());
     let home_path = PathBuf::from(home);
 
     let rc_files = [home_path.join(".bashrc"), home_path.join(".zshrc")];
@@ -71,10 +76,16 @@ fn install(custom_path: Option<PathBuf>) -> anyhow::Result<()> {
     if installed_count > 0 {
         println!();
         println!("Onus shell wrapper installed!");
-        println!("Restart your terminal or run: source {}", script_path.display());
+        println!(
+            "Restart your terminal or run: source {}",
+            script_path.display()
+        );
         println!();
         println!("To start tracking a session:");
-        println!("  source {} && onus_shell_start \"my task\"", script_path.display());
+        println!(
+            "  source {} && onus_shell_start \"my task\"",
+            script_path.display()
+        );
         println!();
         println!("To disable temporarily: export ONUS_SHELL_ENABLED=0");
     }
@@ -93,7 +104,9 @@ fn remove(custom_path: Option<PathBuf>) -> anyhow::Result<()> {
     }
 
     // Remove source lines from rc files.
-    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_else(|_| ".".into());
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| ".".into());
     let home_path = PathBuf::from(home);
 
     let rc_files = [home_path.join(".bashrc"), home_path.join(".zshrc")];

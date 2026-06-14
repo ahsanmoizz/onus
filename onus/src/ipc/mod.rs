@@ -2,8 +2,9 @@ pub mod client;
 pub mod protocol;
 pub mod server;
 
-use serde::{Deserialize, Serialize};
+use crate::task_contract::TaskContract;
 use crate::{ActionType, Reversibility, Verdict};
+use serde::{Deserialize, Serialize};
 
 /// An action intercepted by Onus, sent from an integration surface to Onus Core.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,6 +30,10 @@ pub struct ActionResponse {
     pub session_id: String,
     pub sequence: u32,
     pub decision: Verdict,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub canonical_payload_hash: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rule_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -59,12 +64,13 @@ pub enum SessionCommand {
         /// Additional directories/files explicitly allowed.
         #[serde(default)]
         allowed_paths: Vec<String>,
+        /// Full task contract for lifecycle enforcement.
+        #[serde(default)]
+        task_contract: Option<Box<TaskContract>>,
     },
     /// End an existing session.
     #[serde(rename = "end")]
-    End {
-        session_id: String,
-    },
+    End { session_id: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

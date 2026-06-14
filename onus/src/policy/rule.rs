@@ -46,8 +46,12 @@ pub struct Rule {
 impl Rule {
     /// Compile a RuleConfig into an executable Rule.
     pub fn compile(config: &RuleConfig) -> Result<Self, String> {
-        let pattern = Regex::new(&config.pattern)
-            .map_err(|e| format!("Rule {}: invalid pattern '{}': {}", config.id, config.pattern, e))?;
+        let pattern = Regex::new(&config.pattern).map_err(|e| {
+            format!(
+                "Rule {}: invalid pattern '{}': {}",
+                config.id, config.pattern, e
+            )
+        })?;
 
         let action_type = match config.action_type.as_str() {
             "shell" => ActionType::Shell,
@@ -59,7 +63,12 @@ impl Rule {
             "db_mutation" => ActionType::DbMutation,
             "network" => ActionType::Network,
             "mcp" => ActionType::MCP,
-            other => return Err(format!("Rule {}: unknown action_type '{}'", config.id, other)),
+            other => {
+                return Err(format!(
+                    "Rule {}: unknown action_type '{}'",
+                    config.id, other
+                ))
+            }
         };
 
         let decision = match config.decision.as_str() {
@@ -74,7 +83,12 @@ impl Rule {
             "reversible" => Reversibility::Reversible,
             "compensable" => Reversibility::Compensable,
             "irreversible" => Reversibility::Irreversible,
-            other => return Err(format!("Rule {}: unknown reversibility '{}'", config.id, other)),
+            other => {
+                return Err(format!(
+                    "Rule {}: unknown reversibility '{}'",
+                    config.id, other
+                ))
+            }
         };
 
         let allowlist: Vec<Regex> = config
@@ -123,8 +137,8 @@ pub fn load_rules(path: &Path) -> Result<Vec<Rule>, String> {
     let content = std::fs::read_to_string(path)
         .map_err(|e| format!("Failed to read rules file {}: {}", path.display(), e))?;
 
-    let rules_file: RulesFile = toml::from_str(&content)
-        .map_err(|e| format!("Failed to parse rules TOML: {}", e))?;
+    let rules_file: RulesFile =
+        toml::from_str(&content).map_err(|e| format!("Failed to parse rules TOML: {}", e))?;
 
     let mut rules = Vec::new();
     for config in &rules_file.rule {
@@ -146,8 +160,8 @@ pub fn load_rules(path: &Path) -> Result<Vec<Rule>, String> {
 
 /// Load and compile rules from a TOML string (no file path).
 pub fn load_rules_from_str(toml_content: &str) -> Result<Vec<Rule>, String> {
-    let rules_file: RulesFile = toml::from_str(toml_content)
-        .map_err(|e| format!("Failed to parse rules TOML: {}", e))?;
+    let rules_file: RulesFile =
+        toml::from_str(toml_content).map_err(|e| format!("Failed to parse rules TOML: {}", e))?;
 
     let mut rules = Vec::new();
     for config in &rules_file.rule {
@@ -235,6 +249,8 @@ mod tests {
     #[test]
     fn test_glob_to_regex() {
         let re = glob_to_regex("node_modules");
-        assert!(regex::Regex::new(&re).unwrap().is_match("/home/user/node_modules/package"));
+        assert!(regex::Regex::new(&re)
+            .unwrap()
+            .is_match("/home/user/node_modules/package"));
     }
 }

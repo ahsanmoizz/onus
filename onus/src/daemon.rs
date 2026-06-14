@@ -69,15 +69,12 @@ pub fn start_daemon(foreground: bool) -> anyhow::Result<()> {
             use std::ffi::OsStr;
             use std::os::windows::ffi::OsStrExt;
             use winapi::um::processthreadsapi::CreateProcessW;
-            use winapi::um::winbase::DETACHED_PROCESS;
-            use winapi::um::processthreadsapi::STARTUPINFOW;
             use winapi::um::processthreadsapi::PROCESS_INFORMATION;
+            use winapi::um::processthreadsapi::STARTUPINFOW;
+            use winapi::um::winbase::DETACHED_PROCESS;
 
             let exe = std::env::current_exe()?;
-            let cmd = format!(
-                "\"{}\" daemon start --foreground",
-                exe.to_string_lossy()
-            );
+            let cmd = format!("\"{}\" daemon start --foreground", exe.to_string_lossy());
             let wide: Vec<u16> = OsStr::new(&cmd)
                 .encode_wide()
                 .chain(std::iter::once(0))
@@ -175,7 +172,11 @@ fn run_foreground() -> anyhow::Result<()> {
     // Open IPC socket.
     let socket_path = crate::default_socket_path();
 
-    log::info!("Onus v{} daemon starting on {:?}", env!("CARGO_PKG_VERSION"), socket_path);
+    log::info!(
+        "Onus v{} daemon starting on {:?}",
+        env!("CARGO_PKG_VERSION"),
+        socket_path
+    );
 
     #[cfg(unix)]
     {
@@ -209,13 +210,13 @@ fn run_foreground() -> anyhow::Result<()> {
 
     #[cfg(windows)]
     {
-        use winapi::um::namedpipeapi::{ConnectNamedPipe, CreateNamedPipeW};
-        use winapi::um::handleapi::INVALID_HANDLE_VALUE;
-        use winapi::um::fileapi::{ReadFile, WriteFile};
         use std::ffi::OsStr;
-        use std::os::windows::ffi::OsStrExt;
-        use std::os::windows::io::{FromRawHandle, OwnedHandle, AsRawHandle};
         use std::io::{self, Read, Write};
+        use std::os::windows::ffi::OsStrExt;
+        use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+        use winapi::um::fileapi::{ReadFile, WriteFile};
+        use winapi::um::handleapi::INVALID_HANDLE_VALUE;
+        use winapi::um::namedpipeapi::{ConnectNamedPipe, CreateNamedPipeW};
 
         /// Wraps a Windows named pipe HANDLE to implement Read + Write.
         struct PipeStream {
@@ -275,8 +276,8 @@ fn run_foreground() -> anyhow::Result<()> {
             let handle = unsafe {
                 CreateNamedPipeW(
                     pipe_name.as_ptr(),
-                    3, // PIPE_ACCESS_DUPLEX
-                    0, // PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT
+                    3,   // PIPE_ACCESS_DUPLEX
+                    0,   // PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT
                     255, // PIPE_UNLIMITED_INSTANCES
                     65536,
                     65536,
@@ -324,16 +325,24 @@ pub fn stop_daemon() -> anyhow::Result<()> {
         use winapi::um::processthreadsapi::{OpenProcess, TerminateProcess};
         use winapi::um::winnt::PROCESS_TERMINATE;
 
-        let handle = unsafe {
-            OpenProcess(PROCESS_TERMINATE, 0, pid)
-        };
+        let handle = unsafe { OpenProcess(PROCESS_TERMINATE, 0, pid) };
         if handle.is_null() {
-            anyhow::bail!("Failed to open process {}: {}", pid, std::io::Error::last_os_error());
+            anyhow::bail!(
+                "Failed to open process {}: {}",
+                pid,
+                std::io::Error::last_os_error()
+            );
         }
         let result = unsafe { TerminateProcess(handle, 0) };
-        unsafe { CloseHandle(handle); }
+        unsafe {
+            CloseHandle(handle);
+        }
         if result == 0 {
-            anyhow::bail!("Failed to terminate process {}: {}", pid, std::io::Error::last_os_error());
+            anyhow::bail!(
+                "Failed to terminate process {}: {}",
+                pid,
+                std::io::Error::last_os_error()
+            );
         }
     }
 

@@ -8,6 +8,7 @@ pre-execution wrapper for Python agents and tools.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import platform
 import shutil
@@ -44,8 +45,11 @@ class OnusResult:
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> "OnusResult":
+        decision = data.get("decision")
+        if decision not in {"allow", "warn", "block", "escalate"}:
+            raise ValueError(f"Invalid or missing Onus decision: {decision!r}")
         return cls(
-            decision=data.get("decision", "allow"),
+            decision=decision,
             correction=data.get("correction"),
             rule_id=data.get("rule_id"),
             rule_name=data.get("rule_name"),
@@ -65,6 +69,10 @@ class OnusBlockError(RuntimeError):
         super().__init__(message)
 
 
+class OnusEvaluationError(RuntimeError):
+    """Raised when Onus Core cannot return a trustworthy verdict."""
+
+
 @dataclass
 class RollbackRecord:
     action_id: str
@@ -73,6 +81,118 @@ class RollbackRecord:
     before_exists: bool = False
     before_content: Optional[str] = None
     backup_path: Optional[str] = None
+
+
+@dataclass
+class ChangeBudget:
+    max_files_changed: int = 25
+    max_actions: int = 500
+
+
+@dataclass
+class RequiredEvidence:
+    id: str
+    description: str
+    kind: str = "manual"
+
+
+@dataclass
+class CompletionEvidence:
+    id: str
+    passed: bool
+    value: str = ""
+
+
+@dataclass
+class TaskContract:
+    session_id: str
+    original_prompt: str
+    normalized_objective: str
+    allowed_paths: list[str] = field(default_factory=list)
+    allowed_resources: list[str] = field(default_factory=list)
+    protected_paths: list[str] = field(default_factory=list)
+    protected_resources: list[str] = field(default_factory=list)
+    required_evidence: list[RequiredEvidence] = field(default_factory=list)
+    forbidden_actions: list[str] = field(default_factory=list)
+    approval_required_actions: list[str] = field(default_factory=list)
+    change_budget: ChangeBudget = field(default_factory=ChangeBudget)
+    environment_identity: str = ""
+    policy_version: str = ""
+    canonical_hash: str = ""
+    schema_version: int = 1
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "session_id": self.session_id,
+            "original_prompt": self.original_prompt,
+            "normalized_objective": self.normalized_objective,
+            "allowed_paths": self.allowed_paths,
+            "allowed_resources": self.allowed_resources,
+            "protected_paths": self.protected_paths,
+            "protected_resources": self.protected_resources,
+            "required_evidence": [e.__dict__ for e in self.required_evidence],
+            "forbidden_actions": self.forbidden_actions,
+            "approval_required_actions": self.approval_required_actions,
+            "change_budget": self.change_budget.__dict__,
+            "environment_identity": self.environment_identity,
+            "policy_version": self.policy_version,
+            "canonical_hash": self.canonical_hash,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "TaskContract":
+        return cls(
+            schema_version=int(data.get("schema_version", 1)),
+            session_id=data["session_id"],
+            original_prompt=data["original_prompt"],
+            normalized_objective=data["normalized_objective"],
+            allowed_paths=list(data.get("allowed_paths", [])),
+            allowed_resources=list(data.get("allowed_resources", [])),
+            protected_paths=list(data.get("protected_paths", [])),
+            protected_resources=list(data.get("protected_resources", [])),
+            required_evidence=[
+                RequiredEvidence(**item) for item in data.get("required_evidence", [])
+            ],
+            forbidden_actions=list(data.get("forbidden_actions", [])),
+            approval_required_actions=list(data.get("approval_required_actions", [])),
+            change_budget=ChangeBudget(**data.get("change_budget", {})),
+            environment_identity=data.get("environment_identity", ""),
+            policy_version=data.get("policy_version", ""),
+            canonical_hash=data.get("canonical_hash", ""),
+        )
+
+
+@dataclass
+class PromptIntakeResult:
+    status: str
+    provider_mode: str
+    semantic_review: str
+    semantic_roles: list[dict[str, Any]]
+    reasons: list[str]
+    questions: list[str]
+    session_started: bool = False
+    session_id: Optional[str] = None
+    contract_hash: Optional[str] = None
+    proposed_contract: Optional[TaskContract] = None
+    raw: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_json(cls, data: dict[str, Any]) -> "PromptIntakeResult":
+        contract_data = data.get("proposed_contract")
+        return cls(
+            status=data["status"],
+            provider_mode=data.get("provider_mode", "disabled"),
+            semantic_review=data.get("semantic_review", ""),
+            semantic_roles=list(data.get("semantic_roles", [])),
+            reasons=list(data.get("reasons", [])),
+            questions=list(data.get("questions", [])),
+            session_started=bool(data.get("session_started", False)),
+            session_id=data.get("session_id"),
+            contract_hash=data.get("contract_hash"),
+            proposed_contract=TaskContract.from_dict(contract_data) if contract_data else None,
+            raw=data,
+        )
 
 
 class OnusClient:
@@ -145,14 +265,17 @@ class OnusClient:
 
         try:
             data = json.loads(proc.stdout.strip())
-        except json.JSONDecodeError:
-            data = {
-                "decision": "allow",
-                "stderr": proc.stderr,
-                "returncode": proc.returncode,
-            }
+        except json.JSONDecodeError as exc:
+            raise OnusEvaluationError(
+                "Onus Core did not return a valid JSON verdict; action was not executed."
+            ) from exc
 
-        return OnusResult.from_json(data)
+        try:
+            return OnusResult.from_json(data)
+        except ValueError as exc:
+            raise OnusEvaluationError(
+                "Onus Core returned an invalid verdict; action was not executed."
+            ) from exc
 
     def check_command(
         self,
@@ -161,6 +284,128 @@ class OnusClient:
         session_id: Optional[str] = None,
     ) -> OnusResult:
         return self.evaluate("shell", {"command": command}, session_id=session_id, tool="Bash")
+
+    def start_contract(
+        self,
+        contract: TaskContract,
+        *,
+        workspace_root: Union[str, os.PathLike[str]],
+        agent_name: str = "python-agent",
+    ) -> dict[str, Any]:
+        args = [self._bin, "contract", "start"]
+        if self._db_path:
+            args += ["--db", self._db_path]
+        args += ["--workspace-root", str(Path(workspace_root).resolve()), "--agent-name", agent_name]
+        proc = subprocess.run(
+            args,
+            input=json.dumps(contract.to_dict()),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if proc.returncode != 0:
+            raise OnusEvaluationError(
+                f"Onus failed to persist task contract; action was not executed: {proc.stderr}"
+            )
+        return json.loads(proc.stdout.strip())
+
+    def complete_contract(
+        self,
+        session_id: str,
+        evidence: list[CompletionEvidence],
+    ) -> dict[str, Any]:
+        args = [self._bin, "contract", "complete", "--session-id", session_id]
+        if self._db_path:
+            args += ["--db", self._db_path]
+        proc = subprocess.run(
+            args,
+            input=json.dumps([item.__dict__ for item in evidence]),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        data = json.loads(proc.stdout.strip())
+        if proc.returncode not in (0, 4):
+            raise OnusEvaluationError(
+                f"Onus failed to verify task completion: {proc.stderr}"
+            )
+        return data
+
+    def intake_prompt(
+        self,
+        prompt: str,
+        *,
+        workspace_root: Union[str, os.PathLike[str]] = ".",
+        session_id: Optional[str] = None,
+        agent_name: str = "python-agent",
+        start_session: bool = False,
+        provider: str = "disabled",
+        semantic_model: Optional[str] = None,
+        semantic_endpoint: Optional[str] = None,
+        semantic_api_key_env: Optional[str] = None,
+        semantic_local_command: Optional[str] = None,
+        semantic_timeout_ms: Optional[int] = None,
+        semantic_privacy: str = "strict",
+        semantic_redaction: bool = True,
+        semantic_token_budget: Optional[int] = None,
+        semantic_cost_budget_micro_usd: Optional[int] = None,
+        semantic_cost_per_1k_tokens_micro_usd: Optional[int] = None,
+        semantic_fail_closed: bool = False,
+    ) -> PromptIntakeResult:
+        args = [
+            self._bin,
+            "intake",
+            "--workspace-root",
+            str(Path(workspace_root).resolve()),
+            "--provider",
+            provider,
+            "--agent-name",
+            agent_name,
+            "--semantic-privacy",
+            semantic_privacy,
+        ]
+        if semantic_model:
+            args += ["--semantic-model", semantic_model]
+        if semantic_endpoint:
+            args += ["--semantic-endpoint", semantic_endpoint]
+        if semantic_api_key_env:
+            args += ["--semantic-api-key-env", semantic_api_key_env]
+        if semantic_local_command:
+            args += ["--semantic-local-command", semantic_local_command]
+        if semantic_timeout_ms is not None:
+            args += ["--semantic-timeout-ms", str(semantic_timeout_ms)]
+        if not semantic_redaction:
+            args.append("--no-semantic-redaction")
+        if semantic_token_budget is not None:
+            args += ["--semantic-token-budget", str(semantic_token_budget)]
+        if semantic_cost_budget_micro_usd is not None:
+            args += [
+                "--semantic-cost-budget-micro-usd",
+                str(semantic_cost_budget_micro_usd),
+            ]
+        if semantic_cost_per_1k_tokens_micro_usd is not None:
+            args += [
+                "--semantic-cost-per-1k-tokens-micro-usd",
+                str(semantic_cost_per_1k_tokens_micro_usd),
+            ]
+        if semantic_fail_closed:
+            args.append("--semantic-fail-closed")
+        if session_id:
+            args += ["--session-id", session_id]
+        if start_session:
+            args.append("--start-session")
+        if self._db_path:
+            args += ["--db", self._db_path]
+        proc = subprocess.run(
+            args,
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if proc.returncode != 0:
+            raise OnusEvaluationError(f"Prompt intake failed: {proc.stderr}")
+        return PromptIntakeResult.from_json(json.loads(proc.stdout.strip()))
 
     @contextmanager
     def session(self, task_description: str = "") -> Iterator["OnusClient"]:
@@ -253,6 +498,8 @@ class Guardian:
         task: str = "",
         workspace_root: Union[str, os.PathLike[str]] = ".",
         agent_name: str = "python-agent",
+        contract: Optional[Union[TaskContract, dict[str, Any]]] = None,
+        missing_contract_behavior: Optional[str] = None,
         bin_path: Optional[str] = None,
         rules_path: Optional[Union[str, os.PathLike[str]]] = None,
         db_path: Optional[Union[str, os.PathLike[str]]] = None,
@@ -261,6 +508,17 @@ class Guardian:
         self.session_id = f"guardian-{uuid.uuid4()}"
         self.task = task
         self.agent_name = agent_name
+        if contract is None and missing_contract_behavior is None:
+            raise ValueError(
+                "Guardian requires a task contract. Pass contract=TaskContract(...) "
+                "or explicitly set missing_contract_behavior='allow_legacy'."
+            )
+        if isinstance(contract, dict):
+            contract = TaskContract.from_dict(contract)
+        if contract is not None:
+            contract.session_id = self.session_id
+        self.contract = contract
+        self.missing_contract_behavior = missing_contract_behavior
         self.client = OnusClient(bin_path, rules_path=rules_path, db_path=db_path)
         self._rollbacks: list[RollbackRecord] = []
         self._journal_dir = self.workspace_root / ".onus"
@@ -268,9 +526,55 @@ class Guardian:
         self._backup_dir = self._journal_dir / "backups"
         self._backup_dir.mkdir(parents=True, exist_ok=True)
         self._corrections: list[str] = []
+        self._old_missing_contract_behavior: Optional[str] = None
+
+    @classmethod
+    def from_prompt(
+        cls,
+        prompt: str,
+        *,
+        workspace_root: Union[str, os.PathLike[str]] = ".",
+        agent_name: str = "python-agent",
+        bin_path: Optional[str] = None,
+        rules_path: Optional[Union[str, os.PathLike[str]]] = None,
+        db_path: Optional[Union[str, os.PathLike[str]]] = None,
+        provider: str = "disabled",
+    ) -> "Guardian":
+        client = OnusClient(bin_path, rules_path=rules_path, db_path=db_path)
+        intake = client.intake_prompt(
+            prompt,
+            workspace_root=workspace_root,
+            agent_name=agent_name,
+            start_session=False,
+            provider=provider,
+        )
+        if intake.status not in {"READY", "READY_WITH_SAFE_CONTRACT"}:
+            raise OnusEvaluationError(
+                f"Prompt intake returned {intake.status}; questions={intake.questions}"
+            )
+        if intake.proposed_contract is None:
+            raise OnusEvaluationError("Prompt intake did not produce a task contract.")
+        return cls(
+            task=intake.proposed_contract.normalized_objective,
+            workspace_root=workspace_root,
+            agent_name=agent_name,
+            contract=intake.proposed_contract,
+            bin_path=bin_path,
+            rules_path=rules_path,
+            db_path=db_path,
+        )
 
     def __enter__(self) -> "Guardian":
         self.client._session_id = self.session_id
+        if self.contract is not None:
+            self.client.start_contract(
+                self.contract,
+                workspace_root=self.workspace_root,
+                agent_name=self.agent_name,
+            )
+        elif self.missing_contract_behavior:
+            self._old_missing_contract_behavior = os.environ.get("ONUS_MISSING_CONTRACT")
+            os.environ["ONUS_MISSING_CONTRACT"] = self.missing_contract_behavior
         self.client.evaluate(
             "shell",
             {
@@ -285,6 +589,15 @@ class Guardian:
 
     def __exit__(self, *_exc: object) -> None:
         self.client._session_id = None
+        if self._old_missing_contract_behavior is not None:
+            os.environ["ONUS_MISSING_CONTRACT"] = self._old_missing_contract_behavior
+        elif self.missing_contract_behavior:
+            os.environ.pop("ONUS_MISSING_CONTRACT", None)
+
+    def complete(self, evidence: list[CompletionEvidence]) -> dict[str, Any]:
+        if self.contract is None:
+            raise OnusEvaluationError("Cannot complete a Guardian session without a task contract.")
+        return self.client.complete_contract(self.session_id, evidence)
 
     @property
     def corrections(self) -> list[str]:
@@ -307,17 +620,20 @@ class Guardian:
 
     def file_write(self, path: Union[str, os.PathLike[str]], content: str, *, tool: str = "Write") -> OnusResult:
         target = self._resolve(path)
-        before_exists = target.exists()
+        before_state = self._file_state(target)
+        before_exists = before_state["exists"]
         before_content = target.read_text(encoding="utf-8") if before_exists else None
         payload = {
             "file_path": str(target),
             "path": str(target),
             "before_exists": before_exists,
+            "before_sha256": before_state["sha256"],
             "before_content": before_content,
             "after_content": content,
             "content": content,
         }
         result = self.evaluate("file_write", payload, tool=tool)
+        self._assert_file_unchanged(target, before_state)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
         self._record_rollback(
@@ -360,16 +676,19 @@ class Guardian:
 
     def file_delete(self, path: Union[str, os.PathLike[str]], *, tool: str = "Delete") -> OnusResult:
         target = self._resolve(path)
-        before_exists = target.exists()
+        before_state = self._file_state(target)
+        before_exists = before_state["exists"]
         before_content = target.read_text(encoding="utf-8") if before_exists else None
         payload = {
             "file_path": str(target),
             "path": str(target),
             "before_exists": before_exists,
+            "before_sha256": before_state["sha256"],
             "before_content": before_content,
             "after_content": None,
         }
         result = self.evaluate("file_delete", payload, tool=tool)
+        self._assert_file_unchanged(target, before_state)
         if target.exists():
             target.unlink()
         self._record_rollback(
@@ -414,12 +733,15 @@ class Guardian:
         tool: str = "SQLite",
     ) -> OnusResult:
         target = self._resolve(db_path)
+        before_state = self._file_state(target)
         payload = {
             "db_path": str(target),
+            "before_sha256": before_state["sha256"],
             "sql": sql,
             "params": list(params),
         }
         result = self.evaluate("db_mutation", payload, tool=tool)
+        self._assert_file_unchanged(target, before_state)
 
         backup_path = None
         if target.exists():
@@ -490,6 +812,23 @@ class Guardian:
             candidate = self.workspace_root / candidate
         return candidate.resolve()
 
+    def _file_state(self, path: Path) -> dict[str, Any]:
+        if not path.exists():
+            return {"exists": False, "sha256": None, "size": None}
+        digest = hashlib.sha256()
+        with path.open("rb") as fh:
+            for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                digest.update(chunk)
+        stat = path.stat()
+        return {"exists": True, "sha256": digest.hexdigest(), "size": stat.st_size}
+
+    def _assert_file_unchanged(self, path: Path, expected: dict[str, Any]) -> None:
+        current = self._file_state(path)
+        if current != expected:
+            raise OnusEvaluationError(
+                f"Refusing to execute because {path} changed after Onus evaluated the proposed action."
+            )
+
 
 _default_client: Optional[OnusClient] = None
 
@@ -512,9 +851,15 @@ def check_command(command: str, **kwargs: Any) -> OnusResult:
 __all__ = [
     "Guardian",
     "OnusBlockError",
+    "OnusEvaluationError",
     "OnusClient",
     "OnusResult",
     "RollbackRecord",
+    "TaskContract",
+    "ChangeBudget",
+    "RequiredEvidence",
+    "CompletionEvidence",
+    "PromptIntakeResult",
     "evaluate",
     "check_command",
     "get_client",

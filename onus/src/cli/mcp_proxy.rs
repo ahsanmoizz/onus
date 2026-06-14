@@ -35,13 +35,34 @@ pub struct McpProxyArgs {
     /// Port for the approval web UI (default: not started). Set to 9191 to enable.
     #[arg(long, default_value_t = 9191)]
     pub approval_port: u16,
+
+    /// Enable the experimental MCP proxy. Without this flag, the command exits
+    /// with an explicit unsupported error instead of implying production-ready
+    /// MCP protection.
+    #[arg(long)]
+    pub experimental: bool,
+
+    /// Existing governed session ID to bind MCP calls to. If omitted, the proxy
+    /// creates a fresh session ID and contract enforcement follows missing-contract policy.
+    #[arg(long)]
+    pub session_id: Option<String>,
 }
 
 pub fn run(args: McpProxyArgs) -> anyhow::Result<()> {
+    let env_enabled = std::env::var("ONUS_EXPERIMENTAL_MCP_PROXY")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if !args.experimental && !env_enabled {
+        anyhow::bail!(
+            "mcp-proxy is experimental and not enabled by default. Re-run with --experimental or set ONUS_EXPERIMENTAL_MCP_PROXY=1."
+        );
+    }
+
     crate::mcp::proxy::run_proxy(
         &args.server,
         &args.args,
         args.db_path,
         Some(args.approval_port),
+        args.session_id,
     )
 }

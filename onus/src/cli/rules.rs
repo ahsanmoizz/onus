@@ -39,32 +39,46 @@ pub fn run(args: RulesArgs) -> anyhow::Result<()> {
             let default_rules = include_str!("../../rules/default.toml");
 
             if rules_path.exists() {
-                anyhow::bail!("Rules file already exists at {}. Use 'onus rules edit' to modify.", rules_path.display());
+                anyhow::bail!(
+                    "Rules file already exists at {}. Use 'onus rules edit' to modify.",
+                    rules_path.display()
+                );
             }
 
             std::fs::write(&rules_path, default_rules)?;
             println!("Default rules written to {}", rules_path.display());
             let count = default_rules.matches("[[rule]]").count();
-            println!("{} safety rules installed. Use 'onus rules edit' to customize.", count);
+            println!(
+                "{} safety rules installed. Use 'onus rules edit' to customize.",
+                count
+            );
         }
 
         RulesCommand::List => {
             if !rules_path.exists() {
-                anyhow::bail!("No rules file found. Run 'onus rules init' to create default rules.");
+                anyhow::bail!(
+                    "No rules file found. Run 'onus rules init' to create default rules."
+                );
             }
 
             let rules = crate::policy::rule::load_rules(&rules_path)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-            println!("{:14}  {:5}  {:12}  {:10}  {}", "ID", "TIER", "TYPE", "DECISION", "NAME");
+            println!(
+                "{:14}  {:5}  {:12}  {:10}  {}",
+                "ID", "TIER", "TYPE", "DECISION", "NAME"
+            );
             println!("{}", "─".repeat(100));
 
             let mut tier1 = vec![];
             let mut tier2 = vec![];
 
             for rule in &rules {
-                if rule.tier == 1 { tier1.push(rule); }
-                else { tier2.push(rule); }
+                if rule.tier == 1 {
+                    tier1.push(rule);
+                } else {
+                    tier2.push(rule);
+                }
             }
 
             for rules in [&tier1, &tier2] {
@@ -93,13 +107,19 @@ pub fn run(args: RulesArgs) -> anyhow::Result<()> {
 
         RulesCommand::Test { rule_id, payload } => {
             if !rules_path.exists() {
-                anyhow::bail!("No rules file found. Run 'onus rules init' to create default rules.");
+                anyhow::bail!(
+                    "No rules file found. Run 'onus rules init' to create default rules."
+                );
             }
 
             let rules = crate::policy::rule::load_rules(&rules_path)
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
-            let rule = rules.iter().find(|r| r.id == rule_id)
-                .ok_or_else(|| anyhow::anyhow!("Rule '{}' not found. Use 'onus rules list' to see all rules.", rule_id))?;
+            let rule = rules.iter().find(|r| r.id == rule_id).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Rule '{}' not found. Use 'onus rules list' to see all rules.",
+                    rule_id
+                )
+            })?;
 
             println!("Testing rule: {} ({})", rule.id, rule.name);
             println!("Pattern:      {}", rule.pattern);
@@ -116,7 +136,10 @@ pub fn run(args: RulesArgs) -> anyhow::Result<()> {
                         crate::Verdict::Escalate => "\x1b[35mESCALATE\x1b[0m",
                         crate::Verdict::Allow => "ALLOW",
                     };
-                    println!("\nResult:       {} MATCHED — action would be {}", "\x1b[31mMATCHED\x1b[0m", decision);
+                    println!(
+                        "\nResult:       {} MATCHED — action would be {}",
+                        "\x1b[31mMATCHED\x1b[0m", decision
+                    );
                     if !rule.correction.is_empty() {
                         println!("Correction:   {}", rule.correction);
                     }
@@ -137,8 +160,14 @@ pub fn run(args: RulesArgs) -> anyhow::Result<()> {
             let editor = std::env::var("EDITOR")
                 .or_else(|_| std::env::var("VISUAL"))
                 .unwrap_or_else(|_| {
-                    #[cfg(windows)] { "notepad.exe".into() }
-                    #[cfg(not(windows))] { "vi".into() }
+                    #[cfg(windows)]
+                    {
+                        "notepad.exe".into()
+                    }
+                    #[cfg(not(windows))]
+                    {
+                        "vi".into()
+                    }
                 });
 
             let status = std::process::Command::new(&editor)
@@ -166,8 +195,8 @@ pub fn run(args: RulesArgs) -> anyhow::Result<()> {
             let url = "https://raw.githubusercontent.com/Gitlawb/onus/main/rules/default.toml";
             println!("Fetching latest community rules from {}", url);
 
-            let body = download_url(url)
-                .map_err(|e| anyhow::anyhow!("Failed to fetch rules: {}", e))?;
+            let body =
+                download_url(url).map_err(|e| anyhow::anyhow!("Failed to fetch rules: {}", e))?;
 
             // Validate that the fetched content is valid TOML with rules.
             crate::policy::rule::load_rules_from_str(&body)
@@ -222,7 +251,11 @@ fn download_url(url: &str) -> anyhow::Result<String> {
     #[cfg(windows)]
     {
         if let Ok(output) = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-Command", &format!("(Invoke-WebRequest -Uri '{}').Content", url)])
+            .args([
+                "-NoProfile",
+                "-Command",
+                &format!("(Invoke-WebRequest -Uri '{}').Content", url),
+            ])
             .output()
         {
             if output.status.success() {
@@ -231,5 +264,7 @@ fn download_url(url: &str) -> anyhow::Result<String> {
         }
     }
 
-    anyhow::bail!("No download tool found (tried curl, wget, powershell). Install curl and try again.")
+    anyhow::bail!(
+        "No download tool found (tried curl, wget, powershell). Install curl and try again."
+    )
 }

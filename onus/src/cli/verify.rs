@@ -17,7 +17,9 @@ pub struct VerifyArgs {
 }
 
 pub fn run(args: VerifyArgs) -> anyhow::Result<()> {
-    let db_path = args.db.unwrap_or_else(|| crate::data_dir().join("audit.db"));
+    let db_path = args
+        .db
+        .unwrap_or_else(|| crate::data_dir().join("audit.db"));
 
     if !db_path.exists() {
         anyhow::bail!("Audit database not found at {}", db_path.display());

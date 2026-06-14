@@ -27,6 +27,21 @@ fn run_heuristics(request: &ActionRequest) -> Option<HeuristicResult> {
     let payload_str = payload_to_string(&request.action.payload);
     let payload_len = payload_str.len();
 
+    if request.action.action_type == crate::ActionType::FileWrite {
+        let classified = crate::security::classify_payload(&request.action.payload);
+        if classified
+            .classification
+            .contains("\"contains_sensitive\":true")
+        {
+            return Some(HeuristicResult {
+                id: "SECRET_001".into(),
+                name: "hardcoded-secret".into(),
+                correction: "Hardcoded secret detected. Use a secret manager, environment variable reference, or configuration placeholder instead of writing credential material.".into(),
+                decision: Verdict::Block,
+            });
+        }
+    }
+
     // MAGNITUDE_001: Large shell command detection.
     if request.action.action_type == crate::ActionType::Shell {
         // Commands over 2000 chars are suspicious (likely generated/batch).
@@ -58,7 +73,8 @@ fn run_heuristics(request: &ActionRequest) -> Option<HeuristicResult> {
 
         // Commands with multiple destructive flags.
         let destructive_flags = ["--force", "--no-preserve-root", "--hard", "-rf", "dd if="];
-        let flag_count = destructive_flags.iter()
+        let flag_count = destructive_flags
+            .iter()
             .filter(|f| payload_str.contains(*f))
             .count();
         if flag_count >= 2 {
@@ -67,7 +83,8 @@ fn run_heuristics(request: &ActionRequest) -> Option<HeuristicResult> {
                 name: "large-command".into(),
                 correction: format!(
                     "Multiple destructive flags detected ({}). Confirm this is intentional.",
-                    destructive_flags.iter()
+                    destructive_flags
+                        .iter()
                         .filter(|f| payload_str.contains(*f))
                         .copied()
                         .collect::<Vec<&str>>()
@@ -99,8 +116,8 @@ fn run_heuristics(request: &ActionRequest) -> Option<HeuristicResult> {
     if request.action.action_type == crate::ActionType::ApiCall
         || request.action.action_type == crate::ActionType::Network
     {
-        let url_count = payload_str.matches("https://").count()
-            + payload_str.matches("http://").count();
+        let url_count =
+            payload_str.matches("https://").count() + payload_str.matches("http://").count();
         if url_count > 3 {
             return Some(HeuristicResult {
                 id: "MAGNITUDE_001".into(),
@@ -155,8 +172,8 @@ impl PolicyEngine {
         rules.sort_by_key(|r| {
             let tier_key = r.tier as u32 * 10;
             let severity_key = match r.decision {
-                Verdict::Escalate => 0,
-                Verdict::Block => 1,
+                Verdict::Block => 0,
+                Verdict::Escalate => 1,
                 Verdict::Warn => 2,
                 Verdict::Allow => 3,
             };
@@ -205,7 +222,7 @@ impl PolicyEngine {
             let is_worse = match (&worst_verdict, &rule.decision) {
                 (Verdict::Allow, _) => true,
                 (Verdict::Warn, Verdict::Block | Verdict::Escalate) => true,
-                (Verdict::Block, Verdict::Escalate) => true,
+                (Verdict::Escalate, Verdict::Block) => true,
                 _ => false,
             };
 
@@ -219,8 +236,8 @@ impl PolicyEngine {
                 });
             }
 
-            // Short-circuit on Block or Escalate — no need to check further.
-            if worst_verdict == Verdict::Block || worst_verdict == Verdict::Escalate {
+            // Short-circuit only on Block. Escalation must not mask a deterministic denial.
+            if worst_verdict == Verdict::Block {
                 break;
             }
         }
@@ -233,8 +250,8 @@ impl PolicyEngine {
         // Run Tier 2 heuristics only if no Block/Escalate was triggered.
         if worst_verdict == Verdict::Allow || worst_verdict == Verdict::Warn {
             if let Some(heuristic) = run_heuristics(request) {
-                if heuristic.decision == Verdict::Warn {
-                    worst_verdict = Verdict::Warn;
+                if matches!(heuristic.decision, Verdict::Warn | Verdict::Block) {
+                    worst_verdict = heuristic.decision;
                     self.last_match.write().ok().map(|mut lm| {
                         *lm = Some(MatchResult {
                             id: heuristic.id,
@@ -339,9 +356,7 @@ mod tests {
             },
         ];
 
-        let rules: Vec<Rule> = configs.iter()
-            .map(|c| Rule::compile(c).unwrap())
-            .collect();
+        let rules: Vec<Rule> = configs.iter().map(|c| Rule::compile(c).unwrap()).collect();
 
         PolicyEngine::new(rules)
     }
@@ -405,11 +420,12 @@ mod tests {
     }
 
     #[test]
-    fn test_escale_trumps_block() {
+    fn test_block_trumps_escalate() {
         let engine = test_engine();
         // "sudo rm -rf /tmp" matches both SAFETY_001 and SAFETY_002
         let action = make_action(ActionType::Shell, "sudo rm -rf /var/log");
-        assert_eq!(engine.evaluate(&action), Verdict::Escalate);
+        assert_eq!(engine.evaluate(&action), Verdict::Block);
+        assert_eq!(engine.last_match().unwrap().id, "SAFETY_001");
     }
 
     #[test]
@@ -424,14 +440,20 @@ mod tests {
     #[test]
     fn test_heuristic_pipe_chain() {
         let engine = test_engine();
-        let action = make_action(ActionType::Shell, "cat a | grep foo | sort | uniq | head | wc -l");
+        let action = make_action(
+            ActionType::Shell,
+            "cat a | grep foo | sort | uniq | head | wc -l",
+        );
         assert_eq!(engine.evaluate(&action), Verdict::Warn);
     }
 
     #[test]
     fn test_heuristic_destructive_flags() {
         let engine = test_engine();
-        let action = make_action(ActionType::Shell, "dd if=/dev/zero of=/tmp/out bs=1M count=10 --force");
+        let action = make_action(
+            ActionType::Shell,
+            "dd if=/dev/zero of=/tmp/out bs=1M count=10 --force",
+        );
         assert_eq!(engine.evaluate(&action), Verdict::Warn);
     }
 
@@ -449,6 +471,26 @@ mod tests {
         let large = "x".repeat(15000);
         let action = make_action(ActionType::FileWrite, &large);
         assert_eq!(engine.evaluate(&action), Verdict::Warn);
+    }
+
+    #[test]
+    fn test_hardcoded_secret_file_write_blocks() {
+        let engine = test_engine();
+        let request = ActionRequest {
+            version: 1,
+            session_id: "test".into(),
+            sequence: 1,
+            action: crate::ipc::Action {
+                action_type: ActionType::FileWrite,
+                tool: "Write".into(),
+                payload: serde_json::json!({
+                    "path": "src/config.py",
+                    "content": "AWS_SECRET_ACCESS_KEY=\"abc123\""
+                }),
+            },
+        };
+        assert_eq!(engine.evaluate(&request), Verdict::Block);
+        assert_eq!(engine.last_match().unwrap().id, "SECRET_001");
     }
 
     #[test]

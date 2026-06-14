@@ -2,15 +2,27 @@
 
 /// Download URL for the latest Onus release binary.
 fn download_url() -> String {
-    let os = if cfg!(target_os = "linux") { "linux" }
-             else if cfg!(target_os = "macos") { "macos" }
-             else { "windows" };
+    let os = if cfg!(target_os = "linux") {
+        "linux"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "windows"
+    };
 
-    let arch = if cfg!(target_arch = "x86_64") { "x86_64" }
-               else if cfg!(target_arch = "aarch64") { "aarch64" }
-               else { "x86_64" };
+    let arch = if cfg!(target_arch = "x86_64") {
+        "x86_64"
+    } else if cfg!(target_arch = "aarch64") {
+        "aarch64"
+    } else {
+        "x86_64"
+    };
 
-    let ext = if cfg!(target_os = "windows") { "exe" } else { "tar.gz" };
+    let ext = if cfg!(target_os = "windows") {
+        "exe"
+    } else {
+        "tar.gz"
+    };
 
     format!(
         "https://github.com/Gitlawb/onus/releases/latest/download/onus-{}-{}.{}",
@@ -92,5 +104,7 @@ fn fetch_url(url: &str) -> anyhow::Result<String> {
         }
     }
 
-    Err(anyhow::anyhow!("Could not fetch URL (no curl or powershell available)"))
+    Err(anyhow::anyhow!(
+        "Could not fetch URL (no curl or powershell available)"
+    ))
 }

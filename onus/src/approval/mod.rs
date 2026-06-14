@@ -27,7 +27,7 @@ impl ApprovalState {
 }
 
 /// Start the approval HTTP server on the given port, blocking forever.
-pub fn serve(state: ApprovalState, port: u16) -> anyhow::Result<()> {
+pub fn serve(state: ApprovalState, port: u16, token: String) -> anyhow::Result<()> {
     let addr = format!("127.0.0.1:{}", port);
     let server = tiny_http::Server::http(&addr)
         .map_err(|e| anyhow::anyhow!("Failed to start approval server on {}: {}", addr, e))?;
@@ -45,21 +45,31 @@ pub fn serve(state: ApprovalState, port: u16) -> anyhow::Result<()> {
         };
 
         let state = state.clone();
+        let token = token.clone();
 
         // Handle each request in a blocking thread (simple enough for local-only UI)
         std::thread::spawn(move || {
             let url = request.url().to_string();
             let method = request.method().as_str().to_string();
+            if !crate::security::authorized_url(&url, &token) {
+                let _ = request.respond(response(401u16, "Unauthorized".as_bytes(), "text/plain"));
+                return;
+            }
+            let path = url.split('?').next().unwrap_or("/");
 
-            let response = match (method.as_str(), url.as_str()) {
-                ("GET", "/") => serve_index(),
+            let response = match (method.as_str(), path) {
+                ("GET", "/") => serve_index(&token),
                 ("GET", "/api/pending") => serve_pending(&state),
-                ("POST", url) if url.starts_with("/api/approve/") => {
-                    let action_id = &url["/api/approve/".len()..];
-                    serve_approve(&state, action_id)
+                ("POST", path) if path.starts_with("/api/approve/") => {
+                    let action_id = &path["/api/approve/".len()..];
+                    serve_approve(
+                        &state,
+                        action_id,
+                        &format!("local-token:{}", &token[..8.min(token.len())]),
+                    )
                 }
-                ("POST", url) if url.starts_with("/api/reject/") => {
-                    let action_id = &url["/api/reject/".len()..];
+                ("POST", path) if path.starts_with("/api/reject/") => {
+                    let action_id = &path["/api/reject/".len()..];
                     serve_reject(&state, action_id)
                 }
                 _ => response(404u16, "Not Found".as_bytes(), "text/plain"),
@@ -76,15 +86,12 @@ fn response(status_code: u16, body: &[u8], content_type: &str) -> tiny_http::Res
         .with_status_code(status)
         .with_header(
             tiny_http::Header::from_bytes(&b"Content-Type"[..], content_type.as_bytes()).unwrap(),
-        )
-        .with_header(
-            tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], b"*").unwrap(),
         );
     resp.boxed()
 }
 
-fn serve_index() -> tiny_http::ResponseBox {
-    let html = include_str!("index.html");
+fn serve_index(token: &str) -> tiny_http::ResponseBox {
+    let html = include_str!("index.html").replace("__ONUS_TOKEN__", token);
     response(200, html.as_bytes(), "text/html; charset=utf-8")
 }
 
@@ -97,14 +104,19 @@ fn serve_pending(state: &Arc<ApprovalState>) -> tiny_http::ResponseBox {
     response(200, json.as_bytes(), "application/json")
 }
 
-fn serve_approve(state: &Arc<ApprovalState>, action_id: &str) -> tiny_http::ResponseBox {
+fn serve_approve(
+    state: &Arc<ApprovalState>,
+    action_id: &str,
+    approver: &str,
+) -> tiny_http::ResponseBox {
     let result = {
         let mut audit = state.audit.lock().unwrap();
-        audit.approve_action(action_id)
+        audit.approve_action(action_id, approver)
     };
     match result {
         Ok(_) => {
-            let json = serde_json::json!({"status": "approved", "action_id": action_id}).to_string();
+            let json =
+                serde_json::json!({"status": "approved", "action_id": action_id}).to_string();
             response(200, json.as_bytes(), "application/json")
         }
         Err(e) => {
@@ -121,7 +133,8 @@ fn serve_reject(state: &Arc<ApprovalState>, action_id: &str) -> tiny_http::Respo
     };
     match result {
         Ok(_) => {
-            let json = serde_json::json!({"status": "rejected", "action_id": action_id}).to_string();
+            let json =
+                serde_json::json!({"status": "rejected", "action_id": action_id}).to_string();
             response(200, json.as_bytes(), "application/json")
         }
         Err(e) => {

@@ -9,9 +9,9 @@ use std::path::{Path, PathBuf};
 /// Complexity estimation for a task.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Complexity {
-    Small,   // < 50 lines of change
-    Medium,  // 50-200 lines
-    Large,   // 200+ lines
+    Small,  // < 50 lines of change
+    Medium, // 50-200 lines
+    Large,  // 200+ lines
 }
 
 impl Complexity {
@@ -315,9 +315,15 @@ impl ScopeTracker {
 /// Estimate complexity from task description.
 fn estimate_complexity(description: &str) -> Complexity {
     let word_count = description.split_whitespace().count();
-    let has_complex_keywords = ["refactor", "migrate", "rewrite", "implement", "architecture"]
-        .iter()
-        .any(|kw| description.to_lowercase().contains(kw));
+    let has_complex_keywords = [
+        "refactor",
+        "migrate",
+        "rewrite",
+        "implement",
+        "architecture",
+    ]
+    .iter()
+    .any(|kw| description.to_lowercase().contains(kw));
 
     if has_complex_keywords || word_count > 100 {
         Complexity::Large
@@ -359,9 +365,20 @@ fn extract_path(payload: &serde_json::Value) -> Option<String> {
 /// Check if a path is a known-safe directory (build artifacts, caches).
 fn is_safe_path(path: &Path) -> bool {
     let safe_dirs = [
-        "node_modules", ".cache", "__pycache__", "target", "dist",
-        "build", ".next", ".turbo", "coverage", ".venv", "venv",
-        "tmp", ".tmp", ".git",
+        "node_modules",
+        ".cache",
+        "__pycache__",
+        "target",
+        "dist",
+        "build",
+        ".next",
+        ".turbo",
+        "coverage",
+        ".venv",
+        "venv",
+        "tmp",
+        ".tmp",
+        ".git",
     ];
 
     safe_dirs.iter().any(|d| {
@@ -377,10 +394,7 @@ mod tests {
 
     #[test]
     fn test_estimate_complexity_small() {
-        assert_eq!(
-            estimate_complexity("Fix typo in README"),
-            Complexity::Small
-        );
+        assert_eq!(estimate_complexity("Fix typo in README"), Complexity::Small);
     }
 
     #[test]

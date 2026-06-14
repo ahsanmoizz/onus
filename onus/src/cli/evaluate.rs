@@ -47,9 +47,9 @@ pub fn run(args: EvaluateArgs) -> anyhow::Result<()> {
     };
 
     // Load policy engine.
-    let rules_path = args.rules.unwrap_or_else(|| {
-        crate::config_dir().join("rules").join("default.toml")
-    });
+    let rules_path = args
+        .rules
+        .unwrap_or_else(|| crate::config_dir().join("rules").join("default.toml"));
 
     if !rules_path.exists() {
         anyhow::bail!(
@@ -64,9 +64,9 @@ pub fn run(args: EvaluateArgs) -> anyhow::Result<()> {
     let policy_engine = PolicyEngine::new(rules);
 
     // Open audit trail.
-    let db_path = args.db.unwrap_or_else(|| {
-        crate::data_dir().join("audit.db")
-    });
+    let db_path = args
+        .db
+        .unwrap_or_else(|| crate::data_dir().join("audit.db"));
 
     let audit_trail = AuditTrail::open(&db_path)
         .map_err(|e| anyhow::anyhow!("Failed to open audit database: {}", e))?;
@@ -128,7 +128,10 @@ fn translate_hook(hook: HookInput) -> ActionRequest {
 
     // Build a payload that always includes the full input, plus
     // command/cwd extracted for rules that inspect them directly.
-    let mut payload = hook.input.as_object().cloned()
+    let mut payload = hook
+        .input
+        .as_object()
+        .cloned()
         .unwrap_or_else(|| serde_json::Map::new());
     if !hook.cwd.is_empty() {
         payload.insert("cwd".into(), serde_json::Value::String(hook.cwd));

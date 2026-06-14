@@ -2,10 +2,16 @@
 //! accepts length-prefixed JSON messages, evaluates actions, returns verdicts.
 
 use crate::audit::AuditTrail;
-use crate::ipc::{ActionRequest, ActionResponse, DaemonMessage, DaemonResponse, ServerCommand, SessionCommand};
+use crate::ipc::{
+    ActionRequest, ActionResponse, DaemonMessage, DaemonResponse, ServerCommand, SessionCommand,
+};
 use crate::policy::rule::RuleSummary;
 use crate::policy::PolicyEngine;
 use crate::scope::ScopeTracker;
+use crate::semantic::{
+    self, ActionReviewRequest, ConfiguredSemanticReviewer, SemanticFallbackPolicy, SemanticReviewer,
+};
+use crate::task_contract::{self, ContractViolation};
 use crate::Verdict;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
@@ -22,10 +28,7 @@ pub struct ServerState {
 }
 
 impl ServerState {
-    pub fn new(
-        policy_engine: PolicyEngine,
-        audit_trail: AuditTrail,
-    ) -> Self {
+    pub fn new(policy_engine: PolicyEngine, audit_trail: AuditTrail) -> Self {
         Self {
             policy_engine,
             scope_tracker: Arc::new(Mutex::new(ScopeTracker::new())),
@@ -38,6 +41,8 @@ impl ServerState {
 /// Handle a single action request and return the response.
 pub fn handle_action(state: &ServerState, request: ActionRequest) -> ActionResponse {
     let start = Instant::now();
+
+    let contract_violation = evaluate_contract(state, &request);
 
     // Check scope rules first (need scope tracker state)
     let scope_verdict = {
@@ -53,32 +58,65 @@ pub fn handle_action(state: &ServerState, request: ActionRequest) -> ActionRespo
         let scope = state.scope_tracker.lock().unwrap();
         scope.retry_count(&request.session_id)
     };
-    let final_verdict = if retry_count >= 3 && policy_verdict != Verdict::Allow && scope_verdict != Verdict::Allow {
+    let contract_verdict = contract_violation
+        .as_ref()
+        .map(|v| v.verdict.clone())
+        .unwrap_or(Verdict::Allow);
+
+    let mut final_verdict = if retry_count >= 3
+        && policy_verdict != Verdict::Allow
+        && scope_verdict != Verdict::Allow
+    {
         Verdict::Escalate
     } else {
-        // Most restrictive wins: Escalate > Block > Warn > Allow
-        most_restrictive(scope_verdict, policy_verdict)
+        // Most restrictive wins: Block > Escalate > Warn > Allow.
+        most_restrictive(
+            most_restrictive(scope_verdict, policy_verdict),
+            contract_verdict,
+        )
     };
 
-    let (rule_id, rule_name, correction, reversibility) = match &final_verdict {
-        Verdict::Block | Verdict::Warn | Verdict::Escalate => {
-            let result = state.policy_engine.last_match();
-            (
-                result.as_ref().map(|r| r.id.clone()),
-                result.as_ref().map(|r| r.name.clone()),
-                result.as_ref().map(|r| r.correction.clone()),
-                result.as_ref().map(|r| r.reversibility.clone()),
-            )
+    let (mut rule_id, mut rule_name, mut correction, mut reversibility) = if let Some(violation) =
+        contract_violation
+            .as_ref()
+            .filter(|v| v.verdict == final_verdict)
+    {
+        (
+            Some(violation.rule_id.clone()),
+            Some(violation.rule_name.clone()),
+            Some(violation.correction.clone()),
+            None,
+        )
+    } else {
+        match &final_verdict {
+            Verdict::Block | Verdict::Warn | Verdict::Escalate => {
+                let result = state.policy_engine.last_match();
+                (
+                    result.as_ref().map(|r| r.id.clone()),
+                    result.as_ref().map(|r| r.name.clone()),
+                    result.as_ref().map(|r| r.correction.clone()),
+                    result.as_ref().map(|r| r.reversibility.clone()),
+                )
+            }
+            Verdict::Allow => (None, None, None, None),
         }
-        Verdict::Allow => (None, None, None, None),
     };
+
+    apply_semantic_risk_review(
+        &request,
+        &mut final_verdict,
+        &mut rule_id,
+        &mut rule_name,
+        &mut correction,
+        &mut reversibility,
+    );
 
     let latency_us = start.elapsed().as_micros() as u64;
 
-    // Record in audit trail
-    {
+    // Record in audit trail. Persistence failure is fail-closed.
+    let audit_result = {
         let mut audit = state.audit_trail.lock().unwrap();
-        if let Err(e) = audit.record_action(
+        audit.record_action(
             &request.session_id,
             request.sequence as u64,
             &request.action.action_type.to_string(),
@@ -88,10 +126,30 @@ pub fn handle_action(state: &ServerState, request: ActionRequest) -> ActionRespo
             rule_id.as_deref(),
             correction.as_deref(),
             latency_us,
-        ) {
+        )
+    };
+
+    let (action_id, canonical_payload_hash) = match audit_result {
+        Ok((id, payload_hash)) => (Some(id), Some(payload_hash)),
+        Err(e) => {
             log::error!("Audit record failed: {}", e);
+            return ActionResponse {
+                version: 1,
+                session_id: request.session_id,
+                sequence: request.sequence,
+                decision: Verdict::Block,
+                action_id: None,
+                canonical_payload_hash: None,
+                rule_id: Some("ONUS_AUDIT_FAILURE".into()),
+                rule_name: Some("audit-record-failed".into()),
+                correction: Some(
+                    "Onus blocked this action because it could not persist an audit record.".into(),
+                ),
+                latency_us,
+                reversibility: None,
+            };
         }
-    }
+    };
 
     // Update scope tracker with allowed actions
     if final_verdict == Verdict::Allow || final_verdict == Verdict::Warn {
@@ -118,17 +176,169 @@ pub fn handle_action(state: &ServerState, request: ActionRequest) -> ActionRespo
         }
     }
 
+    if final_verdict == Verdict::Block || final_verdict == Verdict::Escalate {
+        if let Ok(mut audit) = state.audit_trail.lock() {
+            let workspace_root = audit
+                .get_session(&request.session_id)
+                .ok()
+                .flatten()
+                .map(|session| session.workspace_root)
+                .unwrap_or_else(|| ".".to_string());
+            let incident_key = format!(
+                "{}:{}",
+                request.action.action_type,
+                rule_id.as_deref().unwrap_or("unknown")
+            );
+            let _ = audit.remember_incident(
+                &request.session_id,
+                &workspace_root,
+                &incident_key,
+                serde_json::json!({
+                    "action_type": request.action.action_type.to_string(),
+                    "tool": request.action.tool.clone(),
+                    "verdict": final_verdict.to_string(),
+                    "rule_id": rule_id.clone(),
+                    "correction": correction.clone(),
+                }),
+            );
+        }
+    }
+
     ActionResponse {
         version: 1,
         session_id: request.session_id,
         sequence: request.sequence,
         decision: final_verdict,
+        action_id,
+        canonical_payload_hash,
         rule_id,
         rule_name,
         correction,
         latency_us,
         reversibility,
     }
+}
+
+fn apply_semantic_risk_review(
+    request: &ActionRequest,
+    final_verdict: &mut Verdict,
+    rule_id: &mut Option<String>,
+    rule_name: &mut Option<String>,
+    correction: &mut Option<String>,
+    reversibility: &mut Option<crate::Reversibility>,
+) {
+    if matches!(final_verdict, Verdict::Block) {
+        return;
+    }
+    let config = semantic::SemanticReviewerConfig::from_env();
+    apply_semantic_risk_review_with_config(
+        request,
+        final_verdict,
+        rule_id,
+        rule_name,
+        correction,
+        reversibility,
+        config,
+    );
+}
+
+fn apply_semantic_risk_review_with_config(
+    request: &ActionRequest,
+    final_verdict: &mut Verdict,
+    rule_id: &mut Option<String>,
+    rule_name: &mut Option<String>,
+    correction: &mut Option<String>,
+    reversibility: &mut Option<crate::Reversibility>,
+    mut config: semantic::SemanticReviewerConfig,
+) {
+    if !config.provider_enabled() {
+        return;
+    }
+    if semantic::is_critical_action(request) {
+        config.fallback_policy = SemanticFallbackPolicy::FailClosed;
+    }
+    let reviewer = ConfiguredSemanticReviewer::new(config);
+    let critical = semantic::is_critical_action(request);
+    let findings = rule_id
+        .iter()
+        .chain(rule_name.iter())
+        .chain(correction.iter())
+        .cloned()
+        .collect::<Vec<_>>();
+
+    match reviewer.review_action(
+        ActionReviewRequest {
+            task_contract_hash: None,
+            action: request.action.clone(),
+            relevant_diff: None,
+            previous_actions: Vec::new(),
+            repository_architecture: Vec::new(),
+            deterministic_verdict: final_verdict.clone(),
+            policy_findings: findings,
+        },
+        critical,
+    ) {
+        Ok(call) => {
+            if !call.trace.accepted {
+                return;
+            }
+            let semantic_verdict = call.output.recommended_decision.clone();
+            let tightened = most_restrictive(final_verdict.clone(), semantic_verdict.clone());
+            if tightened != *final_verdict {
+                *final_verdict = tightened;
+                *rule_id = Some("ONUS_SEMANTIC_RISK_CRITIC".to_string());
+                *rule_name = Some("semantic-risk-critic".to_string());
+                *correction = Some(format!(
+                    "Semantic Risk Critic recommended {}: {}",
+                    semantic_verdict, call.output.rationale
+                ));
+                *reversibility = None;
+            }
+        }
+        Err(trace) => {
+            *final_verdict = Verdict::Block;
+            *rule_id = Some("ONUS_SEMANTIC_REVIEW_FAILED".to_string());
+            *rule_name = Some("semantic-review-failed-closed".to_string());
+            *correction = Some(format!(
+                "Onus blocked this critical action because semantic review failed closed: {}",
+                trace.error.as_deref().unwrap_or("unknown error")
+            ));
+            *reversibility = None;
+        }
+    }
+}
+
+fn evaluate_contract(state: &ServerState, request: &ActionRequest) -> Option<ContractViolation> {
+    let audit = state.audit_trail.lock().ok()?;
+    let contract = match audit.get_task_contract(&request.session_id) {
+        Ok(value) => value,
+        Err(e) => {
+            log::error!("Task contract lookup failed: {}", e);
+            return Some(ContractViolation {
+                verdict: Verdict::Block,
+                rule_id: "ONUS_CONTRACT_LOOKUP_FAILED".to_string(),
+                rule_name: "task-contract-lookup-failed".to_string(),
+                correction: "Onus could not verify the persisted task contract; action blocked."
+                    .to_string(),
+            });
+        }
+    };
+
+    let Some(contract) = contract else {
+        return task_contract::evaluate_missing_contract(&request.action);
+    };
+
+    let workspace = audit
+        .get_session(&request.session_id)
+        .ok()
+        .flatten()
+        .map(|s| std::path::PathBuf::from(s.workspace_root))
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let touched = audit
+        .session_touched_paths(&request.session_id)
+        .unwrap_or_default();
+    task_contract::evaluate_action(&contract, &request.action, &workspace, &touched)
 }
 
 /// Handle a session management command.
@@ -142,6 +352,7 @@ pub fn handle_session(state: &ServerState, command: SessionCommand) -> crate::ip
             workspace_root,
             declared_files,
             allowed_paths,
+            task_contract,
         } => {
             // Start audit session
             {
@@ -157,6 +368,14 @@ pub fn handle_session(state: &ServerState, command: SessionCommand) -> crate::ip
                         status: "error".into(),
                         error: Some(format!("Failed to start audit session: {}", e)),
                     };
+                }
+                if let Some(contract) = task_contract.as_deref() {
+                    if let Err(e) = audit.save_task_contract(contract) {
+                        return crate::ipc::SessionResponse {
+                            status: "error".into(),
+                            error: Some(format!("Failed to save task contract: {}", e)),
+                        };
+                    }
                 }
             }
 
@@ -204,10 +423,7 @@ pub fn handle_session(state: &ServerState, command: SessionCommand) -> crate::ip
 }
 
 /// Handle a single client connection — reads messages in a loop and writes responses.
-pub fn handle_client(
-    state: &ServerState,
-    mut stream: impl Read + Write,
-) -> std::io::Result<()> {
+pub fn handle_client(state: &ServerState, mut stream: impl Read + Write) -> std::io::Result<()> {
     loop {
         // Attempt to read a message. On EOF or error, disconnect.
         let buf = match protocol::read_message_raw(&mut stream) {
@@ -267,7 +483,8 @@ fn handle_daemon_message(state: &ServerState, msg: DaemonMessage) -> DaemonRespo
         rules_response: msg.server_command.as_ref().and_then(|cmd| {
             if matches!(cmd, ServerCommand::Rules) {
                 let rules = state.policy_engine.rules();
-                let summaries: Vec<RuleSummary> = rules.iter().map(|r| RuleSummary::from(r)).collect();
+                let summaries: Vec<RuleSummary> =
+                    rules.iter().map(|r| RuleSummary::from(r)).collect();
                 Some(crate::ipc::RulesResponse { rules: summaries })
             } else {
                 None
@@ -278,20 +495,135 @@ fn handle_daemon_message(state: &ServerState, msg: DaemonMessage) -> DaemonRespo
 
 /// Check if the server has been asked to shut down.
 pub fn is_shutting_down(state: &ServerState) -> bool {
-    state.shutting_down.load(std::sync::atomic::Ordering::Relaxed)
+    state
+        .shutting_down
+        .load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Mark the server for graceful shutdown.
 pub fn request_shutdown(state: &ServerState) {
-    state.shutting_down.store(true, std::sync::atomic::Ordering::Relaxed);
+    state
+        .shutting_down
+        .store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
 fn most_restrictive(a: Verdict, b: Verdict) -> Verdict {
     use Verdict::*;
     match (&a, &b) {
-        (Escalate, _) | (_, Escalate) => Escalate,
         (Block, _) | (_, Block) => Block,
+        (Escalate, _) | (_, Escalate) => Escalate,
         (Warn, _) | (_, Warn) => Warn,
         _ => Allow,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ipc::Action;
+    use crate::policy::rule::load_rules_from_str;
+    use crate::ActionType;
+    use std::path::PathBuf;
+
+    fn temp_db(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("onus-{}-{}.db", name, uuid::Uuid::new_v4()))
+    }
+
+    fn allow_state(db_path: &std::path::Path) -> ServerState {
+        let rules = load_rules_from_str(
+            r#"
+            [[rule]]
+            id = "TEST_NO_MATCH"
+            name = "no match"
+            tier = 1
+            action_type = "shell"
+            pattern = "NEVER_MATCH_THIS_PATTERN"
+            decision = "block"
+            correction = "no match"
+            reversibility = "irreversible"
+            "#,
+        )
+        .unwrap();
+        ServerState::new(PolicyEngine::new(rules), AuditTrail::open(db_path).unwrap())
+    }
+
+    #[test]
+    fn deterministic_block_dominates_approval_escalation() {
+        assert_eq!(
+            most_restrictive(Verdict::Block, Verdict::Escalate),
+            Verdict::Block
+        );
+        assert_eq!(
+            most_restrictive(Verdict::Escalate, Verdict::Block),
+            Verdict::Block
+        );
+    }
+
+    #[test]
+    fn critical_semantic_provider_failure_fails_closed() {
+        let request = ActionRequest {
+            version: 1,
+            session_id: "semantic-fail-closed".to_string(),
+            sequence: 1,
+            action: Action {
+                action_type: ActionType::Shell,
+                tool: "Bash".to_string(),
+                payload: serde_json::json!({"command": "sudo true"}),
+            },
+        };
+        let mut verdict = Verdict::Allow;
+        let mut rule_id = None;
+        let mut rule_name = None;
+        let mut correction = None;
+        let mut reversibility = None;
+
+        apply_semantic_risk_review_with_config(
+            &request,
+            &mut verdict,
+            &mut rule_id,
+            &mut rule_name,
+            &mut correction,
+            &mut reversibility,
+            semantic::SemanticReviewerConfig {
+                provider: semantic::SemanticProviderKind::Local,
+                local_command: Some("definitely-not-a-command".to_string()),
+                fail_closed_on_critical: true,
+                ..semantic::SemanticReviewerConfig::default()
+            },
+        );
+
+        assert_eq!(verdict, Verdict::Block);
+        assert_eq!(rule_id.as_deref(), Some("ONUS_SEMANTIC_REVIEW_FAILED"));
+    }
+
+    #[test]
+    fn audit_persistence_failure_blocks_without_strict_mode() {
+        let db_path = temp_db("strict-mode");
+        let state = allow_state(&db_path);
+        {
+            let mut audit = state.audit_trail.lock().unwrap();
+            audit.break_actions_table_for_test().unwrap();
+        }
+
+        std::env::remove_var("ONUS_STRICT");
+        let response = handle_action(
+            &state,
+            ActionRequest {
+                version: 1,
+                session_id: "strict-session".to_string(),
+                sequence: 1,
+                action: Action {
+                    action_type: ActionType::FileWrite,
+                    tool: "Write".to_string(),
+                    payload: serde_json::json!({"path": "demo.txt", "content": "ok"}),
+                },
+            },
+        );
+
+        assert_eq!(response.decision, Verdict::Block);
+        assert_eq!(response.rule_id.as_deref(), Some("ONUS_AUDIT_FAILURE"));
+        assert!(response.action_id.is_none());
+
+        let _ = std::fs::remove_file(db_path);
     }
 }

@@ -13,23 +13,43 @@ pub struct DashboardArgs {
     /// Port to serve the dashboard on
     #[arg(long, default_value_t = 8787)]
     pub port: u16,
+
+    /// Local dashboard token. If omitted, a random token is generated.
+    #[arg(long)]
+    pub token: Option<String>,
 }
 
 pub fn run(args: DashboardArgs) -> anyhow::Result<()> {
-    let db_path = args.db.unwrap_or_else(|| crate::data_dir().join("audit.db"));
+    let db_path = args
+        .db
+        .unwrap_or_else(|| crate::data_dir().join("audit.db"));
+    let token = args.token.unwrap_or_else(crate::security::local_token);
     let addr = format!("127.0.0.1:{}", args.port);
     let server = tiny_http::Server::http(&addr)
         .map_err(|e| anyhow::anyhow!("Failed to start dashboard on {}: {}", addr, e))?;
 
-    println!("Onus dashboard: http://{}", addr);
+    println!("Onus dashboard: http://{}?token={}", addr, token);
     println!("Reading audit DB: {}", db_path.display());
 
     loop {
         let request = server.recv()?;
         let url = request.url().to_string();
-        let response = match url.as_str() {
-            "/" => response(200, render_index(&db_path)?.as_bytes(), "text/html; charset=utf-8"),
-            "/api/actions" => response(200, render_actions_json(&db_path)?.as_bytes(), "application/json"),
+        if !crate::security::authorized_url(&url, &token) {
+            let _ = request.respond(response(401, b"Unauthorized", "text/plain"));
+            continue;
+        }
+        let path = url.split('?').next().unwrap_or("/");
+        let response = match path {
+            "/" => response(
+                200,
+                render_index(&db_path, &token)?.as_bytes(),
+                "text/html; charset=utf-8",
+            ),
+            "/api/actions" => response(
+                200,
+                render_actions_json(&db_path)?.as_bytes(),
+                "application/json",
+            ),
             _ => response(404, b"Not Found", "text/plain"),
         };
         let _ = request.respond(response);
@@ -51,7 +71,9 @@ fn render_actions_json(db_path: &PathBuf) -> anyhow::Result<String> {
                 "sequence": a.sequence,
                 "action_type": a.action_type,
                 "tool": a.tool_name,
-                "payload": a.payload,
+                "payload": crate::security::mask_text_for_display(&a.payload),
+                "payload_hash": a.payload_hash,
+                "payload_classification": a.payload_classification,
                 "verdict": a.verdict,
                 "rule_id": a.rule_id,
                 "correction": a.correction,
@@ -63,7 +85,7 @@ fn render_actions_json(db_path: &PathBuf) -> anyhow::Result<String> {
     Ok(serde_json::to_string(&rows)?)
 }
 
-fn render_index(db_path: &PathBuf) -> anyhow::Result<String> {
+fn render_index(db_path: &PathBuf, token: &str) -> anyhow::Result<String> {
     let actions_json = render_actions_json(db_path)?;
     Ok(format!(
         r#"<!doctype html>
@@ -108,6 +130,7 @@ fn render_index(db_path: &PathBuf) -> anyhow::Result<String> {
     </table>
   </main>
   <script>
+    const token = {};
     const actions = {};
     const sessions = new Set(actions.map(a => a.session_id));
     document.getElementById('total').textContent = actions.length;
@@ -132,6 +155,7 @@ fn render_index(db_path: &PathBuf) -> anyhow::Result<String> {
 </body>
 </html>"#,
         db_path.display(),
+        serde_json::to_string(token)?,
         actions_json
     ))
 }
@@ -143,4 +167,41 @@ fn response(status_code: u16, body: &[u8], content_type: &str) -> tiny_http::Res
             tiny_http::Header::from_bytes(&b"Content-Type"[..], content_type.as_bytes()).unwrap(),
         )
         .boxed()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Verdict;
+
+    fn temp_db(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("onus-{}-{}.db", name, uuid::Uuid::new_v4()))
+    }
+
+    #[test]
+    fn dashboard_actions_json_masks_persisted_payloads() {
+        let path = temp_db("dashboard-mask");
+        let mut audit = AuditTrail::open(&path).unwrap();
+        audit
+            .record_action(
+                "session-1",
+                1,
+                "file_write",
+                "Write",
+                r#"{"content":"password=super-secret","token":"raw-token"}"#,
+                &Verdict::Allow,
+                None,
+                None,
+                1,
+            )
+            .unwrap();
+
+        let body = render_actions_json(&path).unwrap();
+        assert!(!body.contains("super-secret"));
+        assert!(!body.contains("raw-token"));
+        assert!(body.contains(crate::security::REDACTED));
+        assert!(body.contains("payload_hash"));
+
+        let _ = std::fs::remove_file(path);
+    }
 }

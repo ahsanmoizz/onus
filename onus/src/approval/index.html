@@ -59,9 +59,10 @@
 
 <script>
 const POLL_INTERVAL = 3000;
+const ONUS_TOKEN = "__ONUS_TOKEN__";
 
 async function fetchPending() {
-  const resp = await fetch('/api/pending');
+  const resp = await fetch(`/api/pending?token=${encodeURIComponent(ONUS_TOKEN)}`);
   if (!resp.ok) throw new Error('Failed to fetch pending approvals');
   return await resp.json();
 }
@@ -71,7 +72,7 @@ async function resolve(actionId, action) {
   if (btn) btn.disabled = true;
 
   try {
-    const resp = await fetch(`/api/${action}/${encodeURIComponent(actionId)}`, { method: 'POST' });
+    const resp = await fetch(`/api/${action}/${encodeURIComponent(actionId)}?token=${encodeURIComponent(ONUS_TOKEN)}`, { method: 'POST' });
     if (!resp.ok) {
       const err = await resp.json();
       throw new Error(err.error || 'Request failed');

@@ -1,8 +1,9 @@
-"""End-to-end Onus reality demo.
+"""DEMO_ONLY end-to-end Onus reality demo.
 
 This script uses the Python Guardian SDK against the Rust core. It performs
 real pre-action checks, real file/API/SQLite side effects, real rollback, and
-prints the audit log commands to verify the SQLite ledger.
+prints the audit log commands to verify the SQLite ledger. It uses a DEMO_ONLY
+agent and local demo services; it is not a real LLM or production integration.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SDK = ROOT / "bindings" / "python" / "src"
 sys.path.insert(0, str(SDK))
 
-from onus import Guardian, OnusBlockError  # noqa: E402
+from onus import ChangeBudget, Guardian, OnusBlockError, RequiredEvidence, TaskContract  # noqa: E402
 
 
 class DemoHandler(BaseHTTPRequestHandler):
@@ -99,6 +100,7 @@ def main() -> None:
     api_url = f"http://127.0.0.1:{api_port}/status"
 
     print("ONUS_REALITY_DEMO_START")
+    print("demo_mode=DEMO_ONLY")
     print(f"workspace={demo_dir}")
     print(f"audit_db={db}")
     print("import_guardian=ok")
@@ -107,6 +109,27 @@ def main() -> None:
         task="Reality demo: intercept shell/file/API/SQLite actions",
         workspace_root=demo_dir,
         agent_name="DemoAgent",
+        contract=TaskContract(
+            session_id="demo-session",
+            original_prompt="Reality demo: intercept shell/file/API/SQLite actions",
+            normalized_objective="Demonstrate governed local file, API, SQLite, and shell actions.",
+            allowed_paths=["agent_output.txt", "safe_after_correction.txt", "demo.sqlite"],
+            allowed_resources=[api_url],
+            protected_paths=[".env", "production/**"],
+            protected_resources=["production-db"],
+            required_evidence=[
+                RequiredEvidence(
+                    id="demo-output",
+                    description="Reality demo output is printed for manual inspection.",
+                    kind="demo",
+                )
+            ],
+            forbidden_actions=["file_delete"],
+            approval_required_actions=["db_migration"],
+            change_budget=ChangeBudget(max_files_changed=3, max_actions=20),
+            environment_identity="demo-local",
+            policy_version="demo-policy-v1",
+        ),
         bin_path=str(onus_bin),
         rules_path=str(rules),
         db_path=str(db),

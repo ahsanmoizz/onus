@@ -1,10 +1,15 @@
+pub mod audit;
+pub mod cli;
+pub mod daemon;
 pub mod ipc;
 pub mod mcp;
+pub mod memory;
 pub mod policy;
+pub mod prompt_intake;
 pub mod scope;
-pub mod audit;
-pub mod daemon;
-pub mod cli;
+pub mod security;
+pub mod semantic;
+pub mod task_contract;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -16,13 +21,12 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub fn default_socket_path() -> PathBuf {
     #[cfg(unix)]
     {
-        let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
-            .unwrap_or_else(|_| {
-                let user = std::env::var("USER")
-                    .or_else(|_| std::env::var("USERNAME"))
-                    .unwrap_or_else(|_| "unknown".to_string());
-                format!("/tmp/onus-{}", user)
-            });
+        let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| {
+            let user = std::env::var("USER")
+                .or_else(|_| std::env::var("USERNAME"))
+                .unwrap_or_else(|_| "unknown".to_string());
+            format!("/tmp/onus-{}", user)
+        });
         PathBuf::from(runtime_dir).join("onus.sock")
     }
     #[cfg(windows)]
@@ -50,7 +54,10 @@ pub fn data_dir() -> PathBuf {
     #[cfg(unix)]
     {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-        PathBuf::from(home).join(".local").join("share").join("onus")
+        PathBuf::from(home)
+            .join(".local")
+            .join("share")
+            .join("onus")
     }
     #[cfg(windows)]
     {
@@ -116,6 +123,7 @@ pub enum ActionType {
     ApiCall,
     DbMutation,
     Network,
+    #[serde(rename = "mcp")]
     MCP,
 }
 
@@ -148,13 +156,20 @@ pub mod approval;
 
 /// Evaluate an action request and return (verdict, rule_id, rule_name, correction).
 /// Loads the policy engine fresh — ok for one-off evaluation (CLI) but not hot-path.
-pub fn evaluate_request(request: &ipc::ActionRequest) -> (Verdict, Option<String>, Option<String>, Option<String>) {
+pub fn evaluate_request(
+    request: &ipc::ActionRequest,
+) -> (Verdict, Option<String>, Option<String>, Option<String>) {
     let rules_path = config_dir().join("rules").join("default.toml");
     let rules = match policy::rule::load_rules(&rules_path) {
         Ok(r) => r,
         Err(e) => {
             log::error!("Failed to load rules for evaluate_request: {}", e);
-            return (Verdict::Allow, None, None, None);
+            return (
+                Verdict::Block,
+                Some("ONUS_EVALUATOR_FAILURE".into()),
+                Some("rules-load-failed".into()),
+                Some("Onus could not load its rules, so the action was blocked instead of silently allowed.".into()),
+            );
         }
     };
     let engine = policy::engine::PolicyEngine::new(rules);
