@@ -34,6 +34,10 @@ pub struct ActionRecord {
     pub verdict: String,
     pub rule_id: Option<String>,
     pub correction: Option<String>,
+    pub approval_decision: Option<String>,
+    pub guardian_mode: Option<String>,
+    pub obligations_json: Option<String>,
+    pub approval_reason: Option<String>,
     pub prev_hash: String,
     pub hash: String,
     pub created_at: String,
@@ -167,6 +171,10 @@ impl AuditTrail {
                 verdict TEXT NOT NULL,
                 rule_id TEXT,
                 correction TEXT,
+                approval_decision TEXT,
+                guardian_mode TEXT,
+                obligations_json TEXT,
+                approval_reason TEXT,
                 prev_hash TEXT NOT NULL DEFAULT '',
                 hash TEXT NOT NULL,
                 created_at TEXT NOT NULL,
@@ -206,6 +214,10 @@ impl AuditTrail {
                 rule_id TEXT NOT NULL,
                 rule_name TEXT NOT NULL,
                 correction TEXT NOT NULL,
+                approval_decision TEXT,
+                guardian_mode TEXT,
+                obligations_json TEXT,
+                approval_reason TEXT,
                 status TEXT NOT NULL DEFAULT 'pending',
                 created_at INTEGER NOT NULL,
                 resolved_at INTEGER
@@ -221,6 +233,10 @@ impl AuditTrail {
             "payload_classification",
             "TEXT NOT NULL DEFAULT '{}'",
         )?;
+        ensure_column(&conn, "actions", "approval_decision", "TEXT")?;
+        ensure_column(&conn, "actions", "guardian_mode", "TEXT")?;
+        ensure_column(&conn, "actions", "obligations_json", "TEXT")?;
+        ensure_column(&conn, "actions", "approval_reason", "TEXT")?;
         ensure_column(
             &conn,
             "pending_approvals",
@@ -252,6 +268,10 @@ impl AuditTrail {
             "INTEGER NOT NULL DEFAULT 0",
         )?;
         ensure_column(&conn, "pending_approvals", "approver", "TEXT")?;
+        ensure_column(&conn, "pending_approvals", "approval_decision", "TEXT")?;
+        ensure_column(&conn, "pending_approvals", "guardian_mode", "TEXT")?;
+        ensure_column(&conn, "pending_approvals", "obligations_json", "TEXT")?;
+        ensure_column(&conn, "pending_approvals", "approval_reason", "TEXT")?;
         conn.execute_batch(
             "CREATE INDEX IF NOT EXISTS idx_pending_binding
              ON pending_approvals(session_id, action_id, canonical_payload_hash, task_contract_hash, policy_version, environment_identity, status);",
@@ -369,6 +389,41 @@ impl AuditTrail {
         correction: Option<&str>,
         _latency_us: u64,
     ) -> anyhow::Result<(String, String)> {
+        self.record_action_with_broker_decision(
+            session_id,
+            sequence,
+            action_type,
+            tool_name,
+            payload,
+            verdict,
+            rule_id,
+            correction,
+            _latency_us,
+            None,
+            None,
+            &[],
+            None,
+        )
+    }
+
+    /// Record a single action with Approval Decision Broker metadata.
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_action_with_broker_decision(
+        &mut self,
+        session_id: &str,
+        sequence: u64,
+        action_type: &str,
+        tool_name: &str,
+        payload: &str,
+        verdict: &Verdict,
+        rule_id: Option<&str>,
+        correction: Option<&str>,
+        _latency_us: u64,
+        approval_decision: Option<&str>,
+        guardian_mode: Option<&str>,
+        obligations: &[String],
+        approval_reason: Option<&str>,
+    ) -> anyhow::Result<(String, String)> {
         // Generate a unique action ID
         use uuid::Uuid;
         let action_id = Uuid::new_v4().to_string();
@@ -418,12 +473,19 @@ impl AuditTrail {
         );
         let hash = hex::encode(Sha256::digest(hash_input.as_bytes()));
 
+        let obligations_json = if obligations.is_empty() {
+            None
+        } else {
+            Some(serde_json::to_string(obligations)?)
+        };
+
         self.conn.execute(
             "INSERT INTO actions
                 (action_id, session_id, sequence, action_type, payload, payload_hash,
                  payload_classification, tool_name,
-                 verdict, rule_id, correction, prev_hash, hash, created_at, created_at_unix)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                 verdict, rule_id, correction, approval_decision, guardian_mode,
+                 obligations_json, approval_reason, prev_hash, hash, created_at, created_at_unix)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
             params![
                 action_id,
                 session_id,
@@ -436,6 +498,10 @@ impl AuditTrail {
                 verdict_str,
                 rule_id,
                 correction,
+                approval_decision,
+                guardian_mode,
+                obligations_json,
+                approval_reason,
                 prev_hash,
                 hash,
                 now_iso,
@@ -469,7 +535,8 @@ impl AuditTrail {
         let mut stmt = self.conn.prepare(
             "SELECT action_id, session_id, sequence, action_type, payload, payload_hash,
                     payload_classification, tool_name,
-                    verdict, rule_id, correction, prev_hash, hash, created_at
+                    verdict, rule_id, correction, approval_decision, guardian_mode,
+                    obligations_json, approval_reason, prev_hash, hash, created_at
              FROM actions ORDER BY id DESC LIMIT ?1",
         )?;
 
@@ -486,9 +553,13 @@ impl AuditTrail {
                 verdict: row.get(8)?,
                 rule_id: row.get(9)?,
                 correction: row.get(10)?,
-                prev_hash: row.get(11)?,
-                hash: row.get(12)?,
-                created_at: row.get(13)?,
+                approval_decision: row.get(11)?,
+                guardian_mode: row.get(12)?,
+                obligations_json: row.get(13)?,
+                approval_reason: row.get(14)?,
+                prev_hash: row.get(15)?,
+                hash: row.get(16)?,
+                created_at: row.get(17)?,
             })
         })?;
 
@@ -504,7 +575,8 @@ impl AuditTrail {
         let mut stmt = self.conn.prepare(
             "SELECT action_id, session_id, sequence, action_type, payload, payload_hash,
                     payload_classification, tool_name,
-                    verdict, rule_id, correction, prev_hash, hash, created_at
+                    verdict, rule_id, correction, approval_decision, guardian_mode,
+                    obligations_json, approval_reason, prev_hash, hash, created_at
              FROM actions WHERE session_id = ?1 ORDER BY id ASC",
         )?;
 
@@ -521,9 +593,13 @@ impl AuditTrail {
                 verdict: row.get(8)?,
                 rule_id: row.get(9)?,
                 correction: row.get(10)?,
-                prev_hash: row.get(11)?,
-                hash: row.get(12)?,
-                created_at: row.get(13)?,
+                approval_decision: row.get(11)?,
+                guardian_mode: row.get(12)?,
+                obligations_json: row.get(13)?,
+                approval_reason: row.get(14)?,
+                prev_hash: row.get(15)?,
+                hash: row.get(16)?,
+                created_at: row.get(17)?,
             })
         })?;
 
@@ -857,14 +933,51 @@ impl AuditTrail {
         rule_name: &str,
         correction: &str,
     ) -> anyhow::Result<()> {
+        self.create_pending_approval_with_broker_decision(
+            binding,
+            action_type,
+            tool_name,
+            payload,
+            rule_id,
+            rule_name,
+            correction,
+            None,
+            None,
+            &[],
+            None,
+        )
+    }
+
+    /// Create a pending approval record with Approval Decision Broker metadata.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_pending_approval_with_broker_decision(
+        &mut self,
+        binding: &ApprovalBinding,
+        action_type: &str,
+        tool_name: Option<&str>,
+        payload: &str,
+        rule_id: &str,
+        rule_name: &str,
+        correction: &str,
+        approval_decision: Option<&str>,
+        guardian_mode: Option<&str>,
+        obligations: &[String],
+        approval_reason: Option<&str>,
+    ) -> anyhow::Result<()> {
         let now = now_timestamp();
         let redacted_payload = security::classify_payload_str(payload).redacted;
+        let obligations_json = if obligations.is_empty() {
+            None
+        } else {
+            Some(serde_json::to_string(obligations)?)
+        };
         self.conn.execute(
             "INSERT OR IGNORE INTO pending_approvals
                 (action_id, session_id, action_type, tool_name, payload,
                  canonical_payload_hash, task_contract_hash, policy_version,
-                 environment_identity, expires_at, rule_id, rule_name, correction, status, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 'pending', ?14)",
+                 environment_identity, expires_at, rule_id, rule_name, correction,
+                 approval_decision, guardian_mode, obligations_json, approval_reason, status, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 'pending', ?18)",
             params![
                 binding.action_id,
                 binding.session_id,
@@ -879,6 +992,10 @@ impl AuditTrail {
                 rule_id,
                 rule_name,
                 correction,
+                approval_decision,
+                guardian_mode,
+                obligations_json,
+                approval_reason,
                 now
             ],
         )?;
@@ -929,7 +1046,8 @@ impl AuditTrail {
             "SELECT id, action_id, session_id, action_type, tool_name, payload,
                     canonical_payload_hash, task_contract_hash, policy_version,
                     environment_identity, expires_at, approver,
-                    rule_id, rule_name, correction, status, created_at, resolved_at
+                    rule_id, rule_name, correction, approval_decision, guardian_mode,
+                    obligations_json, approval_reason, status, created_at, resolved_at
              FROM pending_approvals
              WHERE session_id = ?1
                AND action_id = ?2
@@ -967,7 +1085,8 @@ impl AuditTrail {
             "SELECT id, action_id, session_id, action_type, tool_name, payload,
                     canonical_payload_hash, task_contract_hash, policy_version,
                     environment_identity, expires_at, approver,
-                    rule_id, rule_name, correction, status, created_at, resolved_at
+                    rule_id, rule_name, correction, approval_decision, guardian_mode,
+                    obligations_json, approval_reason, status, created_at, resolved_at
              FROM pending_approvals ORDER BY created_at DESC",
         )?;
 
@@ -998,6 +1117,10 @@ pub struct PendingApproval {
     pub rule_id: String,
     pub rule_name: String,
     pub correction: String,
+    pub approval_decision: Option<String>,
+    pub guardian_mode: Option<String>,
+    pub obligations_json: Option<String>,
+    pub approval_reason: Option<String>,
     pub status: String,
     pub created_at: Option<i64>,
     pub resolved_at: Option<i64>,
@@ -1040,9 +1163,13 @@ fn pending_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PendingApproval
         rule_id: row.get(12)?,
         rule_name: row.get(13)?,
         correction: row.get(14)?,
-        status: row.get(15)?,
-        created_at: row.get(16)?,
-        resolved_at: row.get(17)?,
+        approval_decision: row.get(15)?,
+        guardian_mode: row.get(16)?,
+        obligations_json: row.get(17)?,
+        approval_reason: row.get(18)?,
+        status: row.get(19)?,
+        created_at: row.get(20)?,
+        resolved_at: row.get(21)?,
     })
 }
 

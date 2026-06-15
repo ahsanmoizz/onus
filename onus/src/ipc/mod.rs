@@ -2,6 +2,7 @@ pub mod client;
 pub mod protocol;
 pub mod server;
 
+use crate::approval_broker::{ApprovalDecision, GuardianMode};
 use crate::task_contract::TaskContract;
 use crate::{ActionType, Reversibility, Verdict};
 use serde::{Deserialize, Serialize};
@@ -44,6 +45,18 @@ pub struct ActionResponse {
     /// Reversibility classification of the triggered rule.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reversibility: Option<Reversibility>,
+    /// Exact Approval Decision Broker result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_decision: Option<ApprovalDecision>,
+    /// Guardian mode used by the broker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guardian_mode: Option<GuardianMode>,
+    /// Broker obligations that must be satisfied before completion.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub obligations: Vec<String>,
+    /// Human-readable broker reason.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_reason: Option<String>,
 }
 
 /// Session management requests.

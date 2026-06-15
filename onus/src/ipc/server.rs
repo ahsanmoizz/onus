@@ -1,6 +1,7 @@
 //! IPC server — listens on Unix domain socket or Windows named pipe,
 //! accepts length-prefixed JSON messages, evaluates actions, returns verdicts.
 
+use crate::approval_broker::{self, ApprovalDecision, BrokerInput};
 use crate::audit::AuditTrail;
 use crate::ipc::{
     ActionRequest, ActionResponse, DaemonMessage, DaemonResponse, ServerCommand, SessionCommand,
@@ -42,7 +43,7 @@ impl ServerState {
 pub fn handle_action(state: &ServerState, request: ActionRequest) -> ActionResponse {
     let start = Instant::now();
 
-    let contract_violation = evaluate_contract(state, &request);
+    let (task_contract, contract_violation) = evaluate_contract(state, &request);
 
     // Check scope rules first (need scope tracker state)
     let scope_verdict = {
@@ -111,12 +112,30 @@ pub fn handle_action(state: &ServerState, request: ActionRequest) -> ActionRespo
         &mut reversibility,
     );
 
+    let broker_outcome = approval_broker::decide(BrokerInput {
+        request: &request,
+        deterministic_verdict: &final_verdict,
+        rule_id: rule_id.as_deref(),
+        reversibility: reversibility.as_ref(),
+        contract: task_contract.as_ref(),
+        contract_violation_present: contract_violation.is_some(),
+    });
+
+    apply_broker_outcome(
+        &broker_outcome,
+        &mut final_verdict,
+        &mut rule_id,
+        &mut rule_name,
+        &mut correction,
+        &mut reversibility,
+    );
+
     let latency_us = start.elapsed().as_micros() as u64;
 
     // Record in audit trail. Persistence failure is fail-closed.
     let audit_result = {
         let mut audit = state.audit_trail.lock().unwrap();
-        audit.record_action(
+        audit.record_action_with_broker_decision(
             &request.session_id,
             request.sequence as u64,
             &request.action.action_type.to_string(),
@@ -126,6 +145,10 @@ pub fn handle_action(state: &ServerState, request: ActionRequest) -> ActionRespo
             rule_id.as_deref(),
             correction.as_deref(),
             latency_us,
+            Some(broker_outcome.decision.as_str()),
+            Some(broker_outcome.guardian_mode.as_str()),
+            &broker_outcome.obligations,
+            Some(&broker_outcome.reason),
         )
     };
 
@@ -147,6 +170,13 @@ pub fn handle_action(state: &ServerState, request: ActionRequest) -> ActionRespo
                 ),
                 latency_us,
                 reversibility: None,
+                approval_decision: Some(ApprovalDecision::DenyWithCorrection),
+                guardian_mode: Some(approval_broker::GuardianMode::from_env()),
+                obligations: Vec::new(),
+                approval_reason: Some(
+                    "Audit persistence failed; Onus fails closed for critical evaluator persistence."
+                        .into(),
+                ),
             };
         }
     };
@@ -173,6 +203,11 @@ pub fn handle_action(state: &ServerState, request: ActionRequest) -> ActionRespo
     } else if final_verdict == Verdict::Block {
         if let Ok(mut audit) = state.audit_trail.lock() {
             let _ = audit.update_session_status(&request.session_id, "aborted");
+        }
+    }
+    if broker_outcome.decision == ApprovalDecision::TerminateSession {
+        if let Ok(mut audit) = state.audit_trail.lock() {
+            let _ = audit.update_session_status(&request.session_id, "terminated");
         }
     }
 
@@ -216,6 +251,71 @@ pub fn handle_action(state: &ServerState, request: ActionRequest) -> ActionRespo
         correction,
         latency_us,
         reversibility,
+        approval_decision: Some(broker_outcome.decision),
+        guardian_mode: Some(broker_outcome.guardian_mode),
+        obligations: broker_outcome.obligations,
+        approval_reason: Some(broker_outcome.reason),
+    }
+}
+
+fn apply_broker_outcome(
+    broker_outcome: &approval_broker::BrokerOutcome,
+    final_verdict: &mut Verdict,
+    rule_id: &mut Option<String>,
+    rule_name: &mut Option<String>,
+    correction: &mut Option<String>,
+    reversibility: &mut Option<crate::Reversibility>,
+) {
+    match broker_outcome.decision {
+        ApprovalDecision::AllowAutomatically => {}
+        ApprovalDecision::AllowWithObligations => {
+            if matches!(final_verdict, Verdict::Allow | Verdict::Warn)
+                && correction.is_none()
+                && !broker_outcome.obligations.is_empty()
+            {
+                *correction = Some(format!(
+                    "ALLOW_WITH_OBLIGATIONS: {}",
+                    broker_outcome.obligations.join("; ")
+                ));
+            }
+        }
+        ApprovalDecision::RequireHumanApproval => {
+            if matches!(final_verdict, Verdict::Allow | Verdict::Warn) {
+                *final_verdict = Verdict::Escalate;
+                *rule_id = Some("ONUS_APPROVAL_BROKER_HUMAN_REQUIRED".to_string());
+                *rule_name = Some("approval-decision-broker".to_string());
+                *correction = Some(format!(
+                    "{} Obligations: {}",
+                    broker_outcome.reason,
+                    broker_outcome.obligations.join("; ")
+                ));
+                *reversibility = None;
+            }
+        }
+        ApprovalDecision::DenyWithCorrection => {
+            if !matches!(final_verdict, Verdict::Block) {
+                *final_verdict = Verdict::Block;
+                *rule_id = Some("ONUS_APPROVAL_BROKER_DENIED".to_string());
+                *rule_name = Some("approval-decision-broker".to_string());
+                *correction = Some(format!(
+                    "{} Obligations: {}",
+                    broker_outcome.reason,
+                    broker_outcome.obligations.join("; ")
+                ));
+                *reversibility = None;
+            }
+        }
+        ApprovalDecision::TerminateSession => {
+            *final_verdict = Verdict::Block;
+            *rule_id = Some("ONUS_APPROVAL_BROKER_TERMINATED".to_string());
+            *rule_name = Some("approval-decision-broker".to_string());
+            *correction = Some(format!(
+                "{} Obligations: {}",
+                broker_outcome.reason,
+                broker_outcome.obligations.join("; ")
+            ));
+            *reversibility = None;
+        }
     }
 }
 
@@ -308,24 +408,47 @@ fn apply_semantic_risk_review_with_config(
     }
 }
 
-fn evaluate_contract(state: &ServerState, request: &ActionRequest) -> Option<ContractViolation> {
-    let audit = state.audit_trail.lock().ok()?;
+fn evaluate_contract(
+    state: &ServerState,
+    request: &ActionRequest,
+) -> (
+    Option<crate::task_contract::TaskContract>,
+    Option<ContractViolation>,
+) {
+    let Ok(audit) = state.audit_trail.lock() else {
+        return (
+            None,
+            Some(ContractViolation {
+                verdict: Verdict::Block,
+                rule_id: "ONUS_CONTRACT_LOOKUP_FAILED".to_string(),
+                rule_name: "task-contract-lock-failed".to_string(),
+                correction: "Onus could not lock the audit store to verify the task contract; action blocked.".to_string(),
+            }),
+        );
+    };
     let contract = match audit.get_task_contract(&request.session_id) {
         Ok(value) => value,
         Err(e) => {
             log::error!("Task contract lookup failed: {}", e);
-            return Some(ContractViolation {
-                verdict: Verdict::Block,
-                rule_id: "ONUS_CONTRACT_LOOKUP_FAILED".to_string(),
-                rule_name: "task-contract-lookup-failed".to_string(),
-                correction: "Onus could not verify the persisted task contract; action blocked."
-                    .to_string(),
-            });
+            return (
+                None,
+                Some(ContractViolation {
+                    verdict: Verdict::Block,
+                    rule_id: "ONUS_CONTRACT_LOOKUP_FAILED".to_string(),
+                    rule_name: "task-contract-lookup-failed".to_string(),
+                    correction:
+                        "Onus could not verify the persisted task contract; action blocked."
+                            .to_string(),
+                }),
+            );
         }
     };
 
     let Some(contract) = contract else {
-        return task_contract::evaluate_missing_contract(&request.action);
+        return (
+            None,
+            task_contract::evaluate_missing_contract(&request.action),
+        );
     };
 
     let workspace = audit
@@ -338,7 +461,9 @@ fn evaluate_contract(state: &ServerState, request: &ActionRequest) -> Option<Con
     let touched = audit
         .session_touched_paths(&request.session_id)
         .unwrap_or_default();
-    task_contract::evaluate_action(&contract, &request.action, &workspace, &touched)
+    let violation =
+        task_contract::evaluate_action(&contract, &request.action, &workspace, &touched);
+    (Some(contract), violation)
 }
 
 /// Handle a session management command.

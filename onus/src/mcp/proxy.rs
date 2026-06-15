@@ -258,7 +258,7 @@ pub fn run_proxy(
 
                 {
                     let mut audit_lock = audit.lock().unwrap();
-                    let _ = audit_lock.create_pending_approval(
+                    let _ = audit_lock.create_pending_approval_with_broker_decision(
                         &approval_binding,
                         "mcp",
                         Some(&tool_name),
@@ -266,6 +266,16 @@ pub fn run_proxy(
                         &rid,
                         &rname,
                         &corr,
+                        action_response
+                            .approval_decision
+                            .as_ref()
+                            .map(|decision| decision.as_str()),
+                        action_response
+                            .guardian_mode
+                            .as_ref()
+                            .map(|mode| mode.as_str()),
+                        &action_response.obligations,
+                        action_response.approval_reason.as_deref(),
                     );
                 }
 

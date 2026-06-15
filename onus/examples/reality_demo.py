@@ -150,9 +150,14 @@ def main() -> None:
         print("rollback_action=" + (rollback.action_type if rollback else "none"))
         print("file_restored=" + json.dumps(restored))
 
-        api_result, api_body = guardian.api_call(api_url, tool="DemoAgent.ApiCall")
-        print("api_call_verdict=" + api_result.decision)
-        print("api_body=" + api_body.decode("utf-8"))
+        try:
+            api_result, api_body = guardian.api_call(api_url, tool="DemoAgent.ApiCall")
+            print("api_call_verdict=" + api_result.decision)
+            print("api_body=" + api_body.decode("utf-8"))
+        except OnusBlockError as exc:
+            print("api_call_blocked=" + exc.result.decision)
+            print("api_call_approval_decision=" + str(exc.result.approval_decision))
+            print("api_call_rule=" + str(exc.result.rule_id))
 
         db_result = guardian.db_execute(
             sqlite_path,

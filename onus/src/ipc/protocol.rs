@@ -86,6 +86,10 @@ mod tests {
             correction: Some("Blocked for safety".into()),
             latency_us: 1234,
             reversibility: Some(crate::Reversibility::Irreversible),
+            approval_decision: None,
+            guardian_mode: None,
+            obligations: Vec::new(),
+            approval_reason: None,
         };
 
         write_message(&mut buf, &msg).unwrap();

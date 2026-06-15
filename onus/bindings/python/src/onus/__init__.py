@@ -32,7 +32,12 @@ class OnusResult:
     rule_name: Optional[str] = None
     latency_us: Optional[int] = None
     action_id: Optional[str] = None
+    canonical_payload_hash: Optional[str] = None
     reversibility: Optional[str] = None
+    approval_decision: Optional[str] = None
+    guardian_mode: Optional[str] = None
+    obligations: list[str] = field(default_factory=list)
+    approval_reason: Optional[str] = None
     raw: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -55,7 +60,12 @@ class OnusResult:
             rule_name=data.get("rule_name"),
             latency_us=data.get("latency_us"),
             action_id=data.get("action_id"),
+            canonical_payload_hash=data.get("canonical_payload_hash"),
             reversibility=data.get("reversibility"),
+            approval_decision=data.get("approval_decision"),
+            guardian_mode=data.get("guardian_mode"),
+            obligations=list(data.get("obligations", [])),
+            approval_reason=data.get("approval_reason"),
             raw=data,
         )
 

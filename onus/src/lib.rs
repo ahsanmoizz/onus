@@ -153,6 +153,7 @@ pub enum Reversibility {
 }
 
 pub mod approval;
+pub mod approval_broker;
 
 /// Evaluate an action request and return (verdict, rule_id, rule_name, correction).
 /// Loads the policy engine fresh — ok for one-off evaluation (CLI) but not hot-path.

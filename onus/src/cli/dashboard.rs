@@ -77,6 +77,13 @@ fn render_actions_json(db_path: &Path) -> anyhow::Result<String> {
                 "verdict": a.verdict,
                 "rule_id": a.rule_id,
                 "correction": a.correction,
+                "approval_decision": a.approval_decision,
+                "guardian_mode": a.guardian_mode,
+                "obligations": a.obligations_json
+                    .as_deref()
+                    .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+                    .unwrap_or_else(|| serde_json::json!([])),
+                "approval_reason": a.approval_reason,
                 "hash": a.hash,
                 "created_at": a.created_at,
             })

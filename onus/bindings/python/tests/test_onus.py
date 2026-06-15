@@ -114,6 +114,7 @@ class TestOnusResult:
         assert result.rule_id == "SAFETY_001"
         assert result.latency_us == 42
         assert result.reversibility == "irreversible"
+        assert result.approval_decision is None
 
 
 class TestOnusClient:
@@ -132,6 +133,77 @@ class TestOnusClient:
         assert result.blocked is True
         assert result.decision == "block"
         assert result.rule_id == "SAFETY_001"
+
+    def test_acceptance_scenario_d_low_risk_action_auto_approved(
+        self, client: OnusClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("ONUS_GUARDIAN_MODE", "professional")
+        session_id = "acceptance-scenario-d"
+        contract = make_contract(
+            session_id=session_id,
+            allowed_paths=["allowed/**"],
+            protected_paths=[".env", "protected/**"],
+            forbidden_actions=[],
+            approval_required_actions=[],
+            environment_identity="local-dev",
+        )
+        client.start_contract(contract, workspace_root=tmp_path, agent_name="scenario-d")
+
+        result = client.evaluate(
+            "file_read",
+            {"path": "allowed/demo.py"},
+            session_id=session_id,
+            tool="Read",
+        )
+
+        assert result.decision == "allow"
+        assert result.approval_decision == "ALLOW_AUTOMATICALLY"
+        assert result.guardian_mode == "professional"
+        assert result.action_id
+        assert result.canonical_payload_hash
+
+        con = sqlite3.connect(client.db_path)
+        try:
+            row = con.execute(
+                "SELECT approval_decision, guardian_mode, payload_hash FROM actions WHERE session_id = ? ORDER BY id DESC LIMIT 1",
+                (session_id,),
+            ).fetchone()
+        finally:
+            con.close()
+        assert row == ("ALLOW_AUTOMATICALLY", "professional", result.canonical_payload_hash)
+
+    def test_acceptance_scenario_f_production_migration_requires_human(
+        self, client: OnusClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("ONUS_GUARDIAN_MODE", "professional")
+        session_id = "acceptance-scenario-f"
+        contract = make_contract(
+            session_id=session_id,
+            allowed_paths=["migrations/**"],
+            protected_paths=[],
+            forbidden_actions=[],
+            approval_required_actions=[],
+            environment_identity="production-us-east-1",
+        )
+        client.start_contract(contract, workspace_root=tmp_path, agent_name="scenario-f")
+
+        result = client.evaluate(
+            "db_mutation",
+            {
+                "db_path": "migrations/prod.sqlite",
+                "sql": "ALTER TABLE users ADD COLUMN display_name TEXT",
+                "rollback_plan": "",
+            },
+            session_id=session_id,
+            tool="sqlite",
+        )
+
+        assert result.decision == "escalate"
+        assert result.approval_decision == "REQUIRE_HUMAN_APPROVAL"
+        assert result.rule_id == "ONUS_APPROVAL_BROKER_HUMAN_REQUIRED"
+        assert "production environment" in (result.approval_reason or "")
+        assert "database schema change" in (result.approval_reason or "")
+        assert any("migration diff" in item for item in result.obligations)
 
 
 class TestGuardian:
@@ -687,7 +759,7 @@ print(json.dumps({
 
 
 class TestMcpProxyRuntime:
-    def test_mcp_proxy_requires_exact_approved_payload(
+    def test_acceptance_scenario_e_mcp_proxy_rejects_changed_approval_payload(
         self, onus_bin: Path, rules_path: Path, tmp_path: Path
     ):
         db_path = tmp_path / "audit.db"
@@ -776,8 +848,13 @@ while True:
                 row = con.execute(
                     "SELECT action_id, canonical_payload_hash, status FROM pending_approvals"
                 ).fetchone()
+                action_row = con.execute(
+                    "SELECT approval_decision, verdict FROM actions WHERE session_id = ? ORDER BY id DESC LIMIT 1",
+                    (session_id,),
+                ).fetchone()
                 assert row is not None
                 assert row[2] == "pending"
+                assert action_row == ("REQUIRE_HUMAN_APPROVAL", "escalate")
             finally:
                 con.close()
 
@@ -812,6 +889,9 @@ while True:
                 )
                 assert pending_body[0]["action_id"] == row[0]
                 assert pending_body[0]["status"] == "pending"
+                assert pending_body[0]["approval_decision"] == "REQUIRE_HUMAN_APPROVAL"
+                assert pending_body[0]["guardian_mode"] == "professional"
+                assert "approval" in pending_body[0]["approval_reason"].lower()
 
                 approved_body = self._http_json(
                     f"http://127.0.0.1:{approval_port}/api/approve/{row[0]}?token={token}",
