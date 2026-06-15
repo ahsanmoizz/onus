@@ -109,15 +109,68 @@ fn complete(args: ContractCompleteArgs) -> anyhow::Result<()> {
             );
             Ok(())
         }
-        CompletionStatus::HumanReviewRequired { missing_evidence } => {
+        CompletionStatus::CompletedWithExceptions { exceptions } => {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "status": "COMPLETED_WITH_EXCEPTIONS",
+                    "missing_evidence": [],
+                    "exceptions": exceptions
+                })
+            );
+            Ok(())
+        }
+        CompletionStatus::HumanReviewRequired {
+            missing_evidence,
+            findings,
+        } => {
             println!(
                 "{}",
                 serde_json::json!({
                     "status": "HUMAN_REVIEW_REQUIRED",
-                    "missing_evidence": missing_evidence
+                    "missing_evidence": missing_evidence,
+                    "findings": findings,
+                    "correction": format!(
+                        "Completion rejected. Provide required evidence: {}",
+                        missing_evidence.join(", ")
+                    )
                 })
             );
             std::process::exit(4);
+        }
+        CompletionStatus::FailedSafely { findings } => {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "status": "FAILED_SAFELY",
+                    "missing_evidence": [],
+                    "findings": findings,
+                    "correction": "Completion rejected due to critical quality or security findings."
+                })
+            );
+            std::process::exit(5);
+        }
+        CompletionStatus::RolledBack { findings } => {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "status": "ROLLED_BACK",
+                    "missing_evidence": [],
+                    "findings": findings
+                })
+            );
+            std::process::exit(6);
+        }
+        CompletionStatus::Terminated { findings } => {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "status": "TERMINATED",
+                    "missing_evidence": [],
+                    "findings": findings
+                })
+            );
+            std::process::exit(7);
         }
     }
 }

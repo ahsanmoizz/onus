@@ -111,6 +111,7 @@ class CompletionEvidence:
     id: str
     passed: bool
     value: str = ""
+    kind: str = "manual"
 
 
 @dataclass
@@ -335,7 +336,7 @@ class OnusClient:
             timeout=10,
         )
         data = json.loads(proc.stdout.strip())
-        if proc.returncode not in (0, 4):
+        if proc.returncode not in (0, 4, 5, 6, 7):
             raise OnusEvaluationError(
                 f"Onus failed to verify task completion: {proc.stderr}"
             )
@@ -535,6 +536,9 @@ class Guardian:
         self._journal_dir.mkdir(parents=True, exist_ok=True)
         self._backup_dir = self._journal_dir / "backups"
         self._backup_dir.mkdir(parents=True, exist_ok=True)
+        self._checkpoint_dir = self._journal_dir / "checkpoints"
+        self._checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        self._checkpoint_path = self._checkpoint_dir / f"{self.session_id}.json"
         self._corrections: list[str] = []
         self._old_missing_contract_behavior: Optional[str] = None
 
@@ -582,6 +586,7 @@ class Guardian:
                 workspace_root=self.workspace_root,
                 agent_name=self.agent_name,
             )
+            self._create_checkpoint()
         elif self.missing_contract_behavior:
             self._old_missing_contract_behavior = os.environ.get("ONUS_MISSING_CONTRACT")
             os.environ["ONUS_MISSING_CONTRACT"] = self.missing_contract_behavior
@@ -612,6 +617,10 @@ class Guardian:
     @property
     def corrections(self) -> list[str]:
         return list(self._corrections)
+
+    @property
+    def checkpoint_path(self) -> Path:
+        return self._checkpoint_path
 
     def evaluate(self, action_type: str, payload: dict[str, Any], *, tool: str) -> OnusResult:
         result = self.client.evaluate(
@@ -815,6 +824,42 @@ class Guardian:
         journal = self._journal_dir / "rollback_journal.jsonl"
         with journal.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(record.__dict__, sort_keys=True) + "\n")
+
+    def _create_checkpoint(self) -> None:
+        files: list[dict[str, Any]] = []
+        if self.contract is not None:
+            for raw_path in self.contract.allowed_paths:
+                if any(marker in raw_path for marker in "*?[]"):
+                    continue
+                target = self._resolve(raw_path)
+                if target.is_file():
+                    state = self._file_state(target)
+                    try:
+                        checkpoint_path = str(target.relative_to(self.workspace_root))
+                    except ValueError:
+                        checkpoint_path = str(target)
+                    files.append(
+                        {
+                            "path": checkpoint_path,
+                            "sha256": state["sha256"],
+                            "size": state["size"],
+                        }
+                    )
+
+        payload = {
+            "schema_version": 1,
+            "checkpoint_type": "SAFE_SESSION_START",
+            "session_id": self.session_id,
+            "agent_name": self.agent_name,
+            "workspace_root": str(self.workspace_root),
+            "task": self.task,
+            "contract_hash": self.contract.canonical_hash if self.contract else "",
+            "files": files,
+        }
+        self._checkpoint_path.write_text(
+            json.dumps(payload, sort_keys=True, indent=2),
+            encoding="utf-8",
+        )
 
     def _resolve(self, path: Union[str, os.PathLike[str]]) -> Path:
         candidate = Path(path)

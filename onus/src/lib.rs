@@ -6,6 +6,7 @@ pub mod mcp;
 pub mod memory;
 pub mod policy;
 pub mod prompt_intake;
+pub mod quality;
 pub mod scope;
 pub mod security;
 pub mod semantic;

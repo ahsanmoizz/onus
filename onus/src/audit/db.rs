@@ -11,6 +11,7 @@
 //!            started_at TEXT, ended_at TEXT, total_actions INTEGER DEFAULT 0,
 //!            blocked_actions INTEGER DEFAULT 0, escalated_actions INTEGER DEFAULT 0)
 
+use crate::quality::FindingSeverity;
 use crate::security::{self, ApprovalBinding};
 use crate::task_contract::{CompletionEvidence, CompletionStatus, TaskContract};
 use crate::Verdict;
@@ -897,13 +898,30 @@ impl AuditTrail {
         let contract = self
             .get_task_contract(session_id)?
             .ok_or_else(|| anyhow::anyhow!("No task contract found for session {}", session_id))?;
-        let status = crate::task_contract::verify_completion(&contract, evidence);
-        let status_text = match &status {
-            CompletionStatus::CompletedVerified => "COMPLETED_VERIFIED".to_string(),
-            CompletionStatus::HumanReviewRequired { missing_evidence } => {
-                format!("HUMAN_REVIEW_REQUIRED:{}", missing_evidence.join(","))
-            }
-        };
+        let session = self.get_session(session_id)?;
+        let workspace = session
+            .as_ref()
+            .map(|s| std::path::PathBuf::from(&s.workspace_root))
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        let actions = self.get_session_actions(session_id)?;
+        let pending_approvals = self
+            .get_pending_approvals()?
+            .into_iter()
+            .filter(|approval| approval.session_id == session_id)
+            .collect::<Vec<_>>();
+        let verification = crate::quality::verify_completion(
+            &contract,
+            &workspace,
+            &actions,
+            &pending_approvals,
+            evidence,
+        );
+        let status = completion_status_from_verification(
+            session.as_ref().map(|s| s.status.as_str()),
+            verification,
+        );
+        let status_text = status.as_str().to_string();
         self.conn.execute(
             "UPDATE task_contracts
              SET completed_at = ?1, completion_status = ?2
@@ -1177,6 +1195,62 @@ impl Drop for AuditTrail {
     fn drop(&mut self) {
         let _ = self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)", []);
     }
+}
+
+fn completion_status_from_verification(
+    session_status: Option<&str>,
+    verification: crate::quality::CompletionVerification,
+) -> CompletionStatus {
+    if session_status == Some("terminated") {
+        return CompletionStatus::Terminated {
+            findings: verification.findings,
+        };
+    }
+    if session_status == Some("rolled_back") {
+        return CompletionStatus::RolledBack {
+            findings: verification.findings,
+        };
+    }
+
+    if !verification.missing_evidence.is_empty() {
+        return CompletionStatus::HumanReviewRequired {
+            missing_evidence: verification.missing_evidence,
+            findings: verification.findings,
+        };
+    }
+
+    let has_critical = verification
+        .findings
+        .iter()
+        .any(|finding| finding.severity == FindingSeverity::Critical);
+    if has_critical {
+        return CompletionStatus::FailedSafely {
+            findings: verification.findings,
+        };
+    }
+
+    let has_blocking = verification
+        .findings
+        .iter()
+        .any(|finding| finding.severity == FindingSeverity::Blocking);
+    if has_blocking {
+        return CompletionStatus::HumanReviewRequired {
+            missing_evidence: Vec::new(),
+            findings: verification.findings,
+        };
+    }
+
+    if !verification.findings.is_empty() {
+        return CompletionStatus::CompletedWithExceptions {
+            exceptions: verification
+                .findings
+                .into_iter()
+                .map(|finding| finding.message)
+                .collect(),
+        };
+    }
+
+    CompletionStatus::CompletedVerified
 }
 
 #[cfg(test)]

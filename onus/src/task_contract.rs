@@ -50,6 +50,8 @@ pub struct CompletionEvidence {
     pub passed: bool,
     #[serde(default)]
     pub value: String,
+    #[serde(default = "default_evidence_kind")]
+    pub kind: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -98,7 +100,45 @@ pub struct ContractViolation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CompletionStatus {
     CompletedVerified,
-    HumanReviewRequired { missing_evidence: Vec<String> },
+    CompletedWithExceptions {
+        exceptions: Vec<String>,
+    },
+    HumanReviewRequired {
+        missing_evidence: Vec<String>,
+        findings: Vec<crate::quality::QualityFinding>,
+    },
+    FailedSafely {
+        findings: Vec<crate::quality::QualityFinding>,
+    },
+    RolledBack {
+        findings: Vec<crate::quality::QualityFinding>,
+    },
+    Terminated {
+        findings: Vec<crate::quality::QualityFinding>,
+    },
+}
+
+impl CompletionStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::CompletedVerified => "COMPLETED_VERIFIED",
+            Self::CompletedWithExceptions { .. } => "COMPLETED_WITH_EXCEPTIONS",
+            Self::HumanReviewRequired { .. } => "HUMAN_REVIEW_REQUIRED",
+            Self::FailedSafely { .. } => "FAILED_SAFELY",
+            Self::RolledBack { .. } => "ROLLED_BACK",
+            Self::Terminated { .. } => "TERMINATED",
+        }
+    }
+
+    pub fn exit_code(&self) -> i32 {
+        match self {
+            Self::CompletedVerified | Self::CompletedWithExceptions { .. } => 0,
+            Self::HumanReviewRequired { .. } => 4,
+            Self::FailedSafely { .. } => 5,
+            Self::RolledBack { .. } => 6,
+            Self::Terminated { .. } => 7,
+        }
+    }
 }
 
 impl TaskContract {
@@ -239,6 +279,7 @@ pub fn verify_completion(
     } else {
         CompletionStatus::HumanReviewRequired {
             missing_evidence: missing,
+            findings: Vec::new(),
         }
     }
 }

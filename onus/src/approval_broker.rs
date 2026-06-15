@@ -121,8 +121,7 @@ pub fn decide_with_mode(input: BrokerInput<'_>, guardian_mode: GuardianMode) -> 
         return BrokerOutcome {
             decision: ApprovalDecision::DenyWithCorrection,
             guardian_mode,
-            reason: "Deterministic policy denied this action; broker cannot override denial."
-                .to_string(),
+            reason: "A deterministic, contract, or fail-closed evaluator denial blocked this action; the broker cannot override denial.".to_string(),
             obligations: Vec::new(),
             risk_summary: risk,
         };
@@ -138,16 +137,6 @@ pub fn decide_with_mode(input: BrokerInput<'_>, guardian_mode: GuardianMode) -> 
         };
     }
 
-    if requires_human(input.deterministic_verdict, &risk) {
-        return BrokerOutcome {
-            decision: ApprovalDecision::RequireHumanApproval,
-            guardian_mode,
-            reason: human_reason(&risk),
-            obligations: human_obligations(&risk),
-            risk_summary: risk,
-        };
-    }
-
     if test_weakening_should_be_denied(&guardian_mode, &risk) {
         return BrokerOutcome {
             decision: ApprovalDecision::DenyWithCorrection,
@@ -157,6 +146,16 @@ pub fn decide_with_mode(input: BrokerInput<'_>, guardian_mode: GuardianMode) -> 
                 "Restore or preserve the affected test.".to_string(),
                 "Repair implementation without reducing test coverage or assertions.".to_string(),
             ],
+            risk_summary: risk,
+        };
+    }
+
+    if requires_human(input.deterministic_verdict, &risk) {
+        return BrokerOutcome {
+            decision: ApprovalDecision::RequireHumanApproval,
+            guardian_mode,
+            reason: human_reason(&risk),
+            obligations: human_obligations(&risk),
             risk_summary: risk,
         };
     }

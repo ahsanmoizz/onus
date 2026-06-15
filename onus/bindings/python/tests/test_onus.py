@@ -87,6 +87,24 @@ def make_contract(**overrides) -> TaskContract:
     return TaskContract(**data)
 
 
+def quality_evidence(*extra: CompletionEvidence) -> list[CompletionEvidence]:
+    base = [
+        CompletionEvidence(id="tests", passed=True, value="targeted tests pass", kind="test"),
+        CompletionEvidence(id="targeted_tests", passed=True, value="auth tests", kind="test"),
+        CompletionEvidence(id="lint", passed=True, value="lint passed", kind="lint"),
+        CompletionEvidence(id="typecheck", passed=True, value="typecheck passed", kind="typecheck"),
+        CompletionEvidence(id="coverage", passed=True, value="before=90 after=90", kind="coverage"),
+        CompletionEvidence(id="secret_scan", passed=True, value="no secrets", kind="security"),
+        CompletionEvidence(id="architecture_review", passed=True, value="architecture ok", kind="review"),
+        CompletionEvidence(id="module_boundary_review", passed=True, value="boundaries ok", kind="review"),
+        CompletionEvidence(id="final_scope", passed=True, value="diff inside scope", kind="scope"),
+        CompletionEvidence(id="independent_verification", passed=True, value="verified by Onus checks", kind="verification"),
+        CompletionEvidence(id="no_test_weakening", passed=True, value="tests preserved", kind="test"),
+    ]
+    base.extend(extra)
+    return base
+
+
 class TestOnusResult:
     def test_allowed_property(self):
         assert OnusResult(decision="allow").allowed is True
@@ -351,10 +369,11 @@ class TestTaskContractLifecycle:
                 guardian.file_write(".env", "TOKEN=value\n")
         assert exc.value.result.rule_id == "ONUS_CONTRACT_PROTECTED_PATH"
 
-    def test_hardcoded_secret_write_is_blocked_and_not_written(
+    def test_acceptance_scenario_c_hardcoded_secret_is_blocked_redacted_and_not_written(
         self, onus_bin: Path, rules_path: Path, tmp_path: Path
     ):
         target = tmp_path / "allowed" / "config.py"
+        session_id = None
         with Guardian(
             workspace_root=tmp_path,
             contract=make_contract(),
@@ -362,6 +381,7 @@ class TestTaskContractLifecycle:
             rules_path=str(rules_path),
             db_path=str(tmp_path / "audit.db"),
         ) as guardian:
+            session_id = guardian.session_id
             with pytest.raises(OnusBlockError) as exc:
                 guardian.file_write(
                     "allowed/config.py",
@@ -370,6 +390,156 @@ class TestTaskContractLifecycle:
         assert exc.value.result.rule_id == "SECRET_001"
         assert "secret" in str(exc.value).lower()
         assert not target.exists()
+        con = sqlite3.connect(tmp_path / "audit.db")
+        try:
+            stored_payloads = [
+                row[0]
+                for row in con.execute(
+                    "SELECT payload FROM actions WHERE session_id = ?",
+                    (session_id,),
+                )
+            ]
+        finally:
+            con.close()
+        assert not any("abc123" in payload for payload in stored_payloads)
+        assert any("[REDACTED]" in payload for payload in stored_payloads)
+
+    def test_acceptance_scenario_b_deleted_test_is_blocked_and_completion_requires_tests(
+        self,
+        onus_bin: Path,
+        rules_path: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        monkeypatch.setenv("ONUS_GUARDIAN_MODE", "professional")
+        test_file = tmp_path / "tests" / "test_login.py"
+        test_file.parent.mkdir(parents=True)
+        test_file.write_text("def test_login():\n    assert True\n", encoding="utf-8")
+        contract = make_contract(
+            allowed_paths=["tests/**"],
+            protected_paths=[],
+            forbidden_actions=[],
+            required_evidence=[
+                RequiredEvidence(id="tests", description="Original login test passes", kind="test")
+            ],
+        )
+        with Guardian(
+            workspace_root=tmp_path,
+            contract=contract,
+            bin_path=str(onus_bin),
+            rules_path=str(rules_path),
+            db_path=str(tmp_path / "audit.db"),
+        ) as guardian:
+            with pytest.raises(OnusBlockError) as exc:
+                guardian.file_delete("tests/test_login.py")
+            assert exc.value.result.decision == "block"
+            assert exc.value.result.approval_decision == "DENY_WITH_CORRECTION"
+            assert test_file.exists()
+            result = guardian.complete([])
+        assert result["status"] == "HUMAN_REVIEW_REQUIRED"
+        assert "tests" in result["missing_evidence"]
+        assert "no_test_weakening" in result["missing_evidence"]
+
+    def test_beginner_guardian_mode_creates_checkpoint_and_denies_test_weakening(
+        self,
+        onus_bin: Path,
+        rules_path: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        monkeypatch.setenv("ONUS_GUARDIAN_MODE", "beginner")
+        test_file = tmp_path / "tests" / "test_login.py"
+        test_file.parent.mkdir(parents=True)
+        test_file.write_text("def test_login():\n    assert user_can_login()\n", encoding="utf-8")
+        contract = make_contract(
+            allowed_paths=["tests/test_login.py"],
+            protected_paths=[],
+            forbidden_actions=[],
+        )
+
+        with Guardian(
+            workspace_root=tmp_path,
+            contract=contract,
+            bin_path=str(onus_bin),
+            rules_path=str(rules_path),
+            db_path=str(tmp_path / "audit.db"),
+        ) as guardian:
+            assert guardian.checkpoint_path.exists()
+            checkpoint = json.loads(guardian.checkpoint_path.read_text(encoding="utf-8"))
+            assert checkpoint["checkpoint_type"] == "SAFE_SESSION_START"
+            assert checkpoint["session_id"] == guardian.session_id
+            assert checkpoint["files"][0]["path"].replace("\\", "/") == "tests/test_login.py"
+
+            with pytest.raises(OnusBlockError) as exc:
+                guardian.file_write(
+                    "tests/test_login.py",
+                    "def test_login():\n    pytest.skip('temporarily disabled')\n",
+                )
+
+        result = exc.value.result
+        assert result.decision == "block"
+        assert result.guardian_mode == "beginner"
+        assert result.approval_decision == "DENY_WITH_CORRECTION"
+        assert "delete, skip, or weaken tests" in (result.approval_reason or "")
+        assert "pytest.skip" not in test_file.read_text(encoding="utf-8")
+
+    def test_professional_reviewer_mode_requires_quality_evidence(
+        self,
+        onus_bin: Path,
+        rules_path: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        monkeypatch.setenv("ONUS_GUARDIAN_MODE", "professional")
+        with Guardian(
+            workspace_root=tmp_path,
+            contract=make_contract(),
+            bin_path=str(onus_bin),
+            rules_path=str(rules_path),
+            db_path=str(tmp_path / "audit.db"),
+        ) as guardian:
+            result = guardian.complete(
+                [CompletionEvidence(id="tests", passed=True, value="tests pass", kind="test")]
+            )
+
+        assert result["status"] == "HUMAN_REVIEW_REQUIRED"
+        for evidence_id in [
+            "targeted_tests",
+            "lint",
+            "typecheck",
+            "coverage",
+            "secret_scan",
+            "architecture_review",
+            "module_boundary_review",
+            "final_scope",
+            "independent_verification",
+            "no_test_weakening",
+        ]:
+            assert evidence_id in result["missing_evidence"]
+
+    def test_professional_reviewer_mode_detects_dependency_and_configuration_drift(
+        self,
+        onus_bin: Path,
+        rules_path: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        monkeypatch.setenv("ONUS_GUARDIAN_MODE", "professional")
+        contract = make_contract(allowed_paths=["allowed/**"], forbidden_actions=[])
+        with Guardian(
+            workspace_root=tmp_path,
+            contract=contract,
+            bin_path=str(onus_bin),
+            rules_path=str(rules_path),
+            db_path=str(tmp_path / "audit.db"),
+        ) as guardian:
+            guardian.file_write("allowed/package.json", '{"dependencies":{"demo":"1.0.0"}}\n')
+            guardian.file_write("allowed/service.yaml", "service: demo\n")
+            result = guardian.complete(quality_evidence())
+
+        assert result["status"] == "HUMAN_REVIEW_REQUIRED"
+        assert "dependency_review" in result["missing_evidence"]
+        assert "configuration_review" in result["missing_evidence"]
 
     def test_excessive_file_count_is_blocked(self, onus_bin: Path, rules_path: Path, tmp_path: Path):
         contract = make_contract(change_budget=ChangeBudget(max_files_changed=1, max_actions=20))
@@ -462,7 +632,9 @@ class TestTaskContractLifecycle:
         ) as guardian:
             result = guardian.complete([])
         assert result["status"] == "HUMAN_REVIEW_REQUIRED"
-        assert result["missing_evidence"] == ["tests"]
+        assert "tests" in result["missing_evidence"]
+        assert "independent_verification" in result["missing_evidence"]
+        assert "correction" in result
 
     def test_completion_with_required_evidence_is_verified(
         self, onus_bin: Path, rules_path: Path, tmp_path: Path
@@ -474,8 +646,35 @@ class TestTaskContractLifecycle:
             rules_path=str(rules_path),
             db_path=str(tmp_path / "audit.db"),
         ) as guardian:
-            result = guardian.complete([CompletionEvidence(id="tests", passed=True, value="ok")])
+            result = guardian.complete(quality_evidence())
         assert result["status"] == "COMPLETED_VERIFIED"
+
+    def test_acceptance_scenario_g_agent_statement_is_not_completion_evidence(
+        self, onus_bin: Path, rules_path: Path, tmp_path: Path
+    ):
+        with Guardian(
+            workspace_root=tmp_path,
+            contract=make_contract(),
+            bin_path=str(onus_bin),
+            rules_path=str(rules_path),
+            db_path=str(tmp_path / "audit.db"),
+        ) as guardian:
+            result = guardian.complete(
+                [
+                    CompletionEvidence(
+                        id="agent_complete",
+                        passed=True,
+                        value="The work is complete.",
+                        kind="agent_statement",
+                    )
+                ]
+            )
+        assert result["status"] == "HUMAN_REVIEW_REQUIRED"
+        assert "independent_verification" in result["missing_evidence"]
+        assert any(
+            finding["id"] == "AGENT_STATEMENT_NOT_EVIDENCE"
+            for finding in result["findings"]
+        )
 
 
 class TestPromptIntakeGuardian:
