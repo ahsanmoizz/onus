@@ -72,10 +72,20 @@ if (Test-Path $ClaudeConfig) {
     try {
         $config = Get-Content $ClaudeConfig -Raw | ConvertFrom-Json
         if (-not $config.hooks) { $config | Add-Member -Name "hooks" -Value @{} -MemberType NoteProperty }
-        $config.hooks | Add-Member -Name "preToolUse" -Value @{
-            command = "$BinaryPath evaluate"
-            timeout = 5000
-        } -MemberType NoteProperty -Force
+        $config.hooks | Add-Member -Name "PreToolUse" -Value @(
+            @{
+                matcher = "*"
+                hooks = @(
+                    @{
+                        type = "command"
+                        command = $BinaryPath
+                        args = @("claude-hook")
+                        timeout = 5
+                        statusMessage = "Onus reviewing Claude Code tool call"
+                    }
+                )
+            }
+        ) -MemberType NoteProperty -Force
         $config | ConvertTo-Json -Depth 10 | Set-Content $ClaudeConfig
         Write-Host "  ✓ Claude Code hook wired" -ForegroundColor Green
     } catch {

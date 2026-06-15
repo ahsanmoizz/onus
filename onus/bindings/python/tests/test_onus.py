@@ -1129,6 +1129,294 @@ print(json.dumps({
         assert result.semantic_roles[0]["accepted"] is True
 
 
+class TestClaudeCodeAdapterRuntime:
+    def test_claude_hook_allow_deny_correction_and_agent_retry(
+        self, onus_bin: Path, rules_path: Path, tmp_path: Path
+    ):
+        db_path = tmp_path / "claude-hook.db"
+        denied = self._run_claude_hook(
+            onus_bin,
+            rules_path,
+            db_path,
+            self._hook_payload("Bash", {"command": "rm -rf /important"}),
+        )
+        assert denied["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert "SAFETY_001" in denied["hookSpecificOutput"]["permissionDecisionReason"]
+        assert "destroy filesystem data" in denied["hookSpecificOutput"]["permissionDecisionReason"]
+
+        retry = self._run_claude_hook(
+            onus_bin,
+            rules_path,
+            db_path,
+            self._hook_payload("Bash", {"command": "echo safe retry"}),
+        )
+        assert retry["hookSpecificOutput"]["permissionDecision"] == "allow"
+
+    def test_claude_hook_ask_for_contract_approval_and_guardian_mode(
+        self, onus_bin: Path, rules_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("ONUS_GUARDIAN_MODE", "beginner")
+        db_path = tmp_path / "claude-hook.db"
+        session_id = "claude-ask-session"
+        client = OnusClient(
+            bin_path=str(onus_bin),
+            rules_path=str(rules_path),
+            db_path=str(db_path),
+        )
+        client.start_contract(
+            make_contract(
+                session_id=session_id,
+                allowed_paths=[],
+                protected_paths=[],
+                forbidden_actions=[],
+                approval_required_actions=["shell"],
+            ),
+            workspace_root=tmp_path,
+            agent_name="claude-code-runtime-test",
+        )
+
+        output = self._run_claude_hook(
+            onus_bin,
+            rules_path,
+            db_path,
+            self._hook_payload("Bash", {"command": "echo needs approval"}, session_id=session_id),
+        )
+        assert output["hookSpecificOutput"]["permissionDecision"] == "ask"
+        assert "requires approval" in output["hookSpecificOutput"]["permissionDecisionReason"]
+
+        con = sqlite3.connect(db_path)
+        try:
+            row = con.execute(
+                "SELECT approval_decision, guardian_mode FROM actions WHERE session_id = ? ORDER BY id DESC LIMIT 1",
+                (session_id,),
+            ).fetchone()
+        finally:
+            con.close()
+        assert row == ("REQUIRE_HUMAN_APPROVAL", "beginner")
+
+    def test_claude_hook_malformed_input_process_failure_timeout_unavailable_and_disabled(
+        self, onus_bin: Path, rules_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        db_path = tmp_path / "claude-hook.db"
+        malformed = self._run_claude_hook_raw(onus_bin, rules_path, db_path, "{not-json")
+        assert malformed["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert "malformed input" in malformed["hookSpecificOutput"]["permissionDecisionReason"]
+
+        bad_output = self._write_fake_evaluator(tmp_path, "malformed")
+        malformed_output = self._run_claude_hook(
+            onus_bin,
+            rules_path,
+            db_path,
+            self._hook_payload("Bash", {"command": "echo ok"}),
+            evaluator=sys.executable,
+            evaluator_args=[str(bad_output)],
+        )
+        assert malformed_output["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert "malformed output" in malformed_output["hookSpecificOutput"]["permissionDecisionReason"]
+
+        failing = self._write_fake_evaluator(tmp_path, "fail")
+        failure = self._run_claude_hook(
+            onus_bin,
+            rules_path,
+            db_path,
+            self._hook_payload("Bash", {"command": "echo ok"}),
+            evaluator=sys.executable,
+            evaluator_args=[str(failing)],
+        )
+        assert failure["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert "produced no JSON output" in failure["hookSpecificOutput"]["permissionDecisionReason"]
+
+        slow = self._write_fake_evaluator(tmp_path, "slow")
+        timeout = self._run_claude_hook(
+            onus_bin,
+            rules_path,
+            db_path,
+            self._hook_payload("Bash", {"command": "echo ok"}),
+            evaluator=sys.executable,
+            evaluator_args=[str(slow)],
+            extra_args=["--timeout-ms", "50"],
+        )
+        assert timeout["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert "timed out" in timeout["hookSpecificOutput"]["permissionDecisionReason"]
+
+        unavailable = self._run_claude_hook(
+            onus_bin,
+            rules_path,
+            db_path,
+            self._hook_payload("Bash", {"command": "echo ok"}),
+            evaluator=str(tmp_path / "missing-evaluator.exe"),
+        )
+        assert unavailable["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert "evaluator unavailable" in unavailable["hookSpecificOutput"]["permissionDecisionReason"]
+
+        monkeypatch.setenv("ONUS_CLAUDE_HOOK_DISABLED", "1")
+        disabled = self._run_claude_hook(
+            onus_bin,
+            rules_path,
+            db_path,
+            self._hook_payload("Bash", {"command": "rm -rf /important"}),
+        )
+        assert disabled["hookSpecificOutput"]["permissionDecision"] == "allow"
+        assert "BEST-EFFORT hook is bypassed" in disabled["hookSpecificOutput"]["permissionDecisionReason"]
+
+    def test_claude_hook_nested_subagent_unsupported_tool_and_strict_mode(
+        self, onus_bin: Path, rules_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        db_path = tmp_path / "claude-hook.db"
+        nested = self._run_claude_hook(
+            onus_bin,
+            rules_path,
+            db_path,
+            self._hook_payload(
+                "Read",
+                {"file_path": str(tmp_path / "demo.txt")},
+                agent_type="general-purpose",
+            ),
+        )
+        assert nested["hookSpecificOutput"]["permissionDecision"] == "allow"
+        con = sqlite3.connect(db_path)
+        try:
+            payload = con.execute(
+                "SELECT payload FROM actions ORDER BY id DESC LIMIT 1",
+            ).fetchone()[0]
+        finally:
+            con.close()
+        assert "general-purpose" in payload
+        assert "L1_BEST_EFFORT" in payload
+
+        unsupported = self._run_claude_hook(
+            onus_bin,
+            rules_path,
+            db_path,
+            self._hook_payload("ImaginaryTool", {"value": "x"}),
+        )
+        assert unsupported["hookSpecificOutput"]["permissionDecision"] == "ask"
+        assert "does not yet support tool" in unsupported["hookSpecificOutput"]["permissionDecisionReason"]
+
+        monkeypatch.setenv("ONUS_STRICT", "1")
+        strict = self._run_claude_hook(
+            onus_bin,
+            rules_path,
+            db_path,
+            self._hook_payload("Bash", {"command": "sudo rm -rf /important"}),
+        )
+        assert strict["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    @pytest.mark.skipif(
+        os.environ.get("ONUS_CLAUDE_CODE_LIVE") != "1",
+        reason="live Claude Code runtime disabled; requires authenticated pinned Claude Code",
+    )
+    def test_live_pinned_claude_code_environment_available(self, tmp_path: Path):
+        version = subprocess.run(
+            ["npx", "-y", "@anthropic-ai/claude-code@2.1.177", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert version.returncode == 0
+        assert "2.1.177" in version.stdout
+
+        auth = subprocess.run(
+            ["npx", "-y", "@anthropic-ai/claude-code@2.1.177", "auth", "status"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert auth.returncode == 0
+        status = json.loads(auth.stdout)
+        assert status["loggedIn"] is True
+
+    @staticmethod
+    def _hook_payload(
+        tool_name: str,
+        tool_input: dict[str, object],
+        *,
+        session_id: str = "claude-runtime-session",
+        agent_type: str = "",
+    ) -> dict[str, object]:
+        return {
+            "hook_event_name": "PreToolUse",
+            "tool_name": tool_name,
+            "tool_input": tool_input,
+            "session_id": session_id,
+            "cwd": "D:\\Onus",
+            "agent": "claude-code",
+            "agent_version": "2.1.177",
+            "agent_type": agent_type,
+            "transcript_path": "D:\\Onus\\.claude\\transcript.jsonl",
+        }
+
+    @classmethod
+    def _run_claude_hook(
+        cls,
+        onus_bin: Path,
+        rules_path: Path,
+        db_path: Path,
+        payload: dict[str, object],
+        *,
+        evaluator: str | None = None,
+        evaluator_args: list[str] | None = None,
+        extra_args: list[str] | None = None,
+    ) -> dict:
+        return cls._run_claude_hook_raw(
+            onus_bin,
+            rules_path,
+            db_path,
+            json.dumps(payload),
+            evaluator=evaluator,
+            evaluator_args=evaluator_args,
+            extra_args=extra_args,
+        )
+
+    @staticmethod
+    def _run_claude_hook_raw(
+        onus_bin: Path,
+        rules_path: Path,
+        db_path: Path,
+        payload: str,
+        *,
+        evaluator: str | None = None,
+        evaluator_args: list[str] | None = None,
+        extra_args: list[str] | None = None,
+    ) -> dict:
+        args = [
+            str(onus_bin),
+            "claude-hook",
+            "--rules",
+            str(rules_path),
+            "--db",
+            str(db_path),
+        ]
+        if evaluator:
+            args += ["--evaluator", evaluator]
+        for item in evaluator_args or []:
+            args += ["--evaluator-arg", item]
+        if extra_args:
+            args.extend(extra_args)
+        proc = subprocess.run(
+            args,
+            input=payload,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert proc.returncode == 0, proc.stderr
+        return json.loads(proc.stdout)
+
+    @staticmethod
+    def _write_fake_evaluator(tmp_path: Path, mode: str) -> Path:
+        script = tmp_path / f"fake_evaluator_{mode}.py"
+        script.write_text(
+            {
+                "malformed": "import sys\nsys.stdin.read()\nprint('not json')\n",
+                "fail": "import sys\nsys.stdin.read()\nsys.stderr.write('boom')\nsys.exit(1)\n",
+                "slow": "import sys, time\nsys.stdin.read()\ntime.sleep(2)\nprint('{\"decision\":\"allow\"}')\n",
+            }[mode],
+            encoding="utf-8",
+        )
+        return script
+
+
 class TestMcpProxyRuntime:
     def test_mcp_gateway_initializes_discovers_allows_and_receipts(
         self, onus_bin: Path, rules_path: Path, tmp_path: Path

@@ -111,24 +111,25 @@ echo "  ✓ Installing default safety rules..."
 echo "  ✓ Configuring Claude Code..."
 CLAUDE_CONFIG="${HOME}/.claude/settings.json"
 if [ -f "$CLAUDE_CONFIG" ]; then
-  if grep -q "onus" "$CLAUDE_CONFIG" 2>/dev/null; then
-    echo "  ✓ Claude Code hook already configured"
-  else
-    # Use simple sed-based JSON merge to avoid Python dependency
-    TMP_CONFIG=$(mktemp)
-    python3 -c "
+  # Use a JSON merge so older Onus hook shapes are upgraded in place.
+  python3 -c "
 import json, sys
 with open('${CLAUDE_CONFIG}') as f:
     c = json.load(f)
 c.setdefault('hooks', {})
-c['hooks']['preToolUse'] = {
-    'command': '/usr/local/bin/onus evaluate',
-    'timeout': 5000
-}
+c['hooks']['PreToolUse'] = [{
+    'matcher': '*',
+    'hooks': [{
+        'type': 'command',
+        'command': '${INSTALL_PATH}',
+        'args': ['claude-hook'],
+        'timeout': 5,
+        'statusMessage': 'Onus reviewing Claude Code tool call'
+    }]
+}]
 with open('${CLAUDE_CONFIG}', 'w') as f:
     json.dump(c, f, indent=2)
 " 2>/dev/null && echo "  ✓ Claude Code hook wired" || echo "  ⚠ Could not auto-configure Claude Code (install python3)"
-  fi
 else
   echo "  ○ Claude Code not detected — skip hook setup"
 fi

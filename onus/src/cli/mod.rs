@@ -1,4 +1,5 @@
 pub mod approvals;
+pub mod claude_hook;
 pub mod contract;
 pub mod daemon_cmd;
 pub mod dashboard;
@@ -32,6 +33,9 @@ pub enum Commands {
 
     /// Evaluate a single action and return a verdict (used by Claude Code preToolUse hook)
     Evaluate(evaluate::EvaluateArgs),
+
+    /// Run as a Claude Code PreToolUse hook adapter (L1 BEST-EFFORT)
+    ClaudeHook(claude_hook::ClaudeHookArgs),
 
     /// Start, stop, or check the Onus daemon
     Daemon(daemon_cmd::DaemonArgs),
