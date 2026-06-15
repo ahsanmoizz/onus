@@ -11,6 +11,7 @@ pub mod scope;
 pub mod security;
 pub mod semantic;
 pub mod task_contract;
+pub mod workspace;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -52,6 +53,9 @@ pub fn config_dir() -> PathBuf {
 
 /// Default data directory (for SQLite audit trail).
 pub fn data_dir() -> PathBuf {
+    if let Ok(override_dir) = std::env::var("ONUS_DATA_DIR") {
+        return PathBuf::from(override_dir);
+    }
     #[cfg(unix)]
     {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());

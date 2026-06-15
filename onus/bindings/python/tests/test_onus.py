@@ -1417,6 +1417,169 @@ class TestClaudeCodeAdapterRuntime:
         return script
 
 
+class TestL3WorkspaceCli:
+    def test_workspace_create_inspect_export_destroy(self, onus_bin: Path, tmp_path: Path):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "README.md").write_text("workspace source\n", encoding="utf-8")
+        (repo / ".git").mkdir()
+        (repo / ".git" / "config").write_text("not exported\n", encoding="utf-8")
+
+        env = os.environ.copy()
+        env["ONUS_DATA_DIR"] = str(tmp_path / "onus-data")
+        session_id = "l3-cli-test"
+
+        create = subprocess.run(
+            [
+                str(onus_bin),
+                "workspace",
+                "create",
+                "--repo",
+                str(repo),
+                "--session",
+                session_id,
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=30,
+        )
+        assert create.returncode == 0, create.stderr
+        created = json.loads(create.stdout)
+        assert created["session_id"] == session_id
+        assert created["network_egress"] == "deny_all"
+        assert created["isolation_level"] == "L3_PENDING_RUNTIME_VERIFICATION"
+        assert created["enforcement_label"] == "L3_LINUX_WORKSPACE_PENDING_VERIFICATION"
+        assert created["boundary_verified"] is False
+        worktree = Path(created["worktree"])
+        assert (worktree / "README.md").is_file()
+        assert not (worktree / ".git").exists()
+        assert created["checkpoints"][0]["id"] == "initial"
+
+        inspect = subprocess.run(
+            [str(onus_bin), "workspace", "inspect", "--session", session_id],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=30,
+        )
+        assert inspect.returncode == 0, inspect.stderr
+        inspected = json.loads(inspect.stdout)
+        assert inspected["session_id"] == session_id
+
+        export_dir = tmp_path / "exports"
+        export = subprocess.run(
+            [
+                str(onus_bin),
+                "workspace",
+                "export",
+                "--session",
+                session_id,
+                "--dest",
+                str(export_dir),
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=30,
+        )
+        assert export.returncode == 0, export.stderr
+        exported = json.loads(export.stdout)
+        exported_path = Path(exported["export_path"])
+        assert (exported_path / "workspace.json").is_file()
+        assert (exported_path / "worktree" / "README.md").read_text(encoding="utf-8") == "workspace source\n"
+        assert not (exported_path / "worktree" / ".git").exists()
+
+        overwrite = subprocess.run(
+            [
+                str(onus_bin),
+                "workspace",
+                "export",
+                "--session",
+                session_id,
+                "--dest",
+                str(export_dir),
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=30,
+        )
+        assert overwrite.returncode != 0
+        assert "refusing to overwrite" in overwrite.stderr
+
+        destroy = subprocess.run(
+            [str(onus_bin), "workspace", "destroy", "--session", session_id],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=30,
+        )
+        assert destroy.returncode == 0, destroy.stderr
+        assert json.loads(destroy.stdout)["destroyed"] is True
+
+        missing = subprocess.run(
+            [str(onus_bin), "workspace", "inspect", "--session", session_id],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=30,
+        )
+        assert missing.returncode != 0
+
+    def test_run_isolate_fails_closed_without_linux_boundary(self, onus_bin: Path, tmp_path: Path):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "README.md").write_text("workspace source\n", encoding="utf-8")
+
+        env = os.environ.copy()
+        env["ONUS_DATA_DIR"] = str(tmp_path / "onus-data")
+        session_id = "l3-fail-closed"
+        create = subprocess.run(
+            [
+                str(onus_bin),
+                "workspace",
+                "create",
+                "--repo",
+                str(repo),
+                "--session",
+                session_id,
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=30,
+        )
+        assert create.returncode == 0, create.stderr
+
+        run = subprocess.run(
+            [
+                str(onus_bin),
+                "run",
+                "--isolate",
+                "--workspace",
+                session_id,
+                "--",
+                sys.executable,
+                "-c",
+                "print('should-not-run')",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=30,
+        )
+        if sys.platform.startswith("linux"):
+            if "bubblewrap" in run.stderr or "bwrap" in run.stderr:
+                assert run.returncode != 0
+            else:
+                pytest.skip("Linux L3 boundary available; adversarial verifier covers execution")
+        else:
+            assert run.returncode != 0
+            assert "only on Linux" in run.stderr
+            assert "should-not-run" not in run.stdout
+
+
 class TestMcpProxyRuntime:
     def test_mcp_gateway_initializes_discovers_allows_and_receipts(
         self, onus_bin: Path, rules_path: Path, tmp_path: Path

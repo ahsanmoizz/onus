@@ -21,6 +21,7 @@ fn main() -> anyhow::Result<()> {
         onus_core::cli::Commands::Intake(args) => onus_core::cli::intake::run(args)?,
         onus_core::cli::Commands::Status => onus_core::cli::status::run()?,
         onus_core::cli::Commands::Log(args) => onus_core::cli::log_cmd::run(args)?,
+        onus_core::cli::Commands::Run(args) => onus_core::cli::run_cmd::run(args)?,
         onus_core::cli::Commands::Session(args) => onus_core::cli::session::run(args)?,
         onus_core::cli::Commands::Rules(args) => onus_core::cli::rules::run(args)?,
         onus_core::cli::Commands::Upgrade => onus_core::cli::upgrade::run()?,
@@ -28,6 +29,7 @@ fn main() -> anyhow::Result<()> {
         onus_core::cli::Commands::McpProxy(args) => onus_core::cli::mcp_proxy::run(args)?,
         onus_core::cli::Commands::Shell(args) => onus_core::cli::shell::run(args)?,
         onus_core::cli::Commands::Verify(args) => onus_core::cli::verify::run(args)?,
+        onus_core::cli::Commands::Workspace(args) => onus_core::cli::workspace::run(args)?,
     }
 
     Ok(())

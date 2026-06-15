@@ -7,12 +7,14 @@ pub mod evaluate;
 pub mod intake;
 pub mod log_cmd;
 pub mod rules;
+pub mod run_cmd;
 pub mod session;
 pub mod shell;
 pub mod status;
 pub mod uninstall;
 pub mod upgrade;
 pub mod verify;
+pub mod workspace;
 
 use clap::{Parser, Subcommand};
 
@@ -55,6 +57,9 @@ pub enum Commands {
     /// View the audit trail
     Log(log_cmd::LogArgs),
 
+    /// Run an agent command inside an Onus-controlled workspace
+    Run(run_cmd::RunArgs),
+
     /// View a specific session summary
     Session(session::SessionArgs),
 
@@ -75,6 +80,9 @@ pub enum Commands {
 
     /// Verify hash chain integrity of the audit trail
     Verify(verify::VerifyArgs),
+
+    /// Create, inspect, export, or destroy an Onus L3 workspace
+    Workspace(workspace::WorkspaceArgs),
 }
 
 pub mod mcp_proxy;
