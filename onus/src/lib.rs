@@ -153,6 +153,39 @@ pub enum Reversibility {
     Irreversible,
 }
 
+/// Recovery model classes for checkpoint and rollback planning.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum RecoveryClass {
+    R0ReadOnly,
+    R1AutomaticallyReversible,
+    R2SnapshotReversible,
+    R3Compensatable,
+    R4IrreversibleOrMitigationOnly,
+}
+
+impl RecoveryClass {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::R0ReadOnly => "R0_READ_ONLY",
+            Self::R1AutomaticallyReversible => "R1_AUTOMATICALLY_REVERSIBLE",
+            Self::R2SnapshotReversible => "R2_SNAPSHOT_REVERSIBLE",
+            Self::R3Compensatable => "R3_COMPENSATABLE",
+            Self::R4IrreversibleOrMitigationOnly => "R4_IRREVERSIBLE_OR_MITIGATION_ONLY",
+        }
+    }
+}
+
+impl From<&Reversibility> for RecoveryClass {
+    fn from(value: &Reversibility) -> Self {
+        match value {
+            Reversibility::Reversible => Self::R1AutomaticallyReversible,
+            Reversibility::Compensable => Self::R3Compensatable,
+            Reversibility::Irreversible => Self::R4IrreversibleOrMitigationOnly,
+        }
+    }
+}
+
 pub mod approval;
 pub mod approval_broker;
 

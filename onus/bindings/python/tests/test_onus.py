@@ -27,8 +27,11 @@ from onus import (
     OnusEvaluationError,
     OnusResult,
     PromptIntakeResult,
+    ReversibilityClass,
     RequiredEvidence,
+    RollbackResult,
     TaskContract,
+    UnsupportedExternalRecoveryAdapter,
 )
 
 
@@ -247,6 +250,175 @@ class TestGuardian:
             rollback = guardian.rollback_last()
             assert rollback is not None
             assert target.read_text(encoding="utf-8") == "before\n"
+
+    def test_recovery_record_contains_state_without_raw_file_content(
+        self, onus_bin: Path, rules_path: Path, tmp_path: Path
+    ):
+        target = tmp_path / "allowed" / "demo.txt"
+        target.parent.mkdir()
+        target.write_text("before secret-ish value\n", encoding="utf-8")
+        with Guardian(
+            workspace_root=tmp_path,
+            contract=make_contract(allowed_paths=["allowed/demo.txt"]),
+            bin_path=str(onus_bin),
+            rules_path=str(rules_path),
+            db_path=str(tmp_path / "audit.db"),
+        ) as guardian:
+            guardian.file_write("allowed/demo.txt", "after secret-ish value\n")
+            record = guardian.recovery_records[-1]
+            journal = (tmp_path / ".onus" / "rollback_journal.jsonl").read_text(encoding="utf-8")
+
+        assert record.reversibility_class == ReversibilityClass.R2
+        assert record.pre_state["exists"] is True
+        assert record.post_state["sha256"] == hashlib.sha256(target.read_bytes()).hexdigest()
+        assert record.inverse_operation["type"] == "restore_file_snapshot"
+        assert record.executed_payload["raw_content_in_journal"] is False
+        assert "after secret-ish value" not in journal
+        assert "before secret-ish value" not in journal
+
+    def test_revert_one_action_restores_only_that_action(
+        self, onus_bin: Path, rules_path: Path, tmp_path: Path
+    ):
+        first = tmp_path / "allowed" / "first.txt"
+        second = tmp_path / "allowed" / "second.txt"
+        first.parent.mkdir()
+        first.write_text("one-before\n", encoding="utf-8")
+        second.write_text("two-before\n", encoding="utf-8")
+        with Guardian(
+            workspace_root=tmp_path,
+            contract=make_contract(allowed_paths=["allowed/**"]),
+            bin_path=str(onus_bin),
+            rules_path=str(rules_path),
+            db_path=str(tmp_path / "audit.db"),
+        ) as guardian:
+            guardian.file_write("allowed/first.txt", "one-after\n")
+            first_action = guardian.recovery_records[-1].action_id
+            guardian.file_write("allowed/second.txt", "two-after\n")
+            result = guardian.revert_action(first_action)
+
+        assert isinstance(result, RollbackResult)
+        assert result.status == "REVERTED"
+        assert result.restored is True
+        assert first.read_text(encoding="utf-8") == "one-before\n"
+        assert second.read_text(encoding="utf-8") == "two-after\n"
+
+    def test_revert_action_group_restores_group_in_reverse_order(
+        self, onus_bin: Path, rules_path: Path, tmp_path: Path
+    ):
+        target = tmp_path / "allowed" / "group.txt"
+        target.parent.mkdir()
+        target.write_text("start\n", encoding="utf-8")
+        with Guardian(
+            workspace_root=tmp_path,
+            contract=make_contract(allowed_paths=["allowed/**"]),
+            bin_path=str(onus_bin),
+            rules_path=str(rules_path),
+            db_path=str(tmp_path / "audit.db"),
+        ) as guardian:
+            guardian.file_write("allowed/group.txt", "middle\n", action_group="phase-1")
+            guardian.file_write("allowed/group.txt", "end\n", action_group="phase-1")
+            result = guardian.revert_action_group("phase-1")
+
+        assert result.status == "REVERTED"
+        assert result.restored is True
+        assert target.read_text(encoding="utf-8") == "start\n"
+
+    def test_revert_session_restores_repository_files_and_sqlite(
+        self, onus_bin: Path, rules_path: Path, tmp_path: Path
+    ):
+        file_target = tmp_path / "allowed" / "session.txt"
+        db_target = tmp_path / "data" / "app.sqlite"
+        file_target.parent.mkdir()
+        db_target.parent.mkdir()
+        file_target.write_text("file-before\n", encoding="utf-8")
+        with sqlite3.connect(db_target) as con:
+            con.execute("CREATE TABLE items (name TEXT)")
+            con.execute("INSERT INTO items VALUES ('before')")
+
+        with Guardian(
+            workspace_root=tmp_path,
+            contract=make_contract(allowed_paths=["allowed/**", "data/**"]),
+            bin_path=str(onus_bin),
+            rules_path=str(rules_path),
+            db_path=str(tmp_path / "audit.db"),
+        ) as guardian:
+            guardian.file_write("allowed/session.txt", "file-after\n")
+            guardian.db_execute("data/app.sqlite", "INSERT INTO items VALUES (?)", ("after",))
+            result = guardian.revert_session()
+
+        assert result.status == "REVERTED"
+        assert result.restored is True
+        assert file_target.read_text(encoding="utf-8") == "file-before\n"
+        with sqlite3.connect(db_target) as con:
+            rows = [row[0] for row in con.execute("SELECT name FROM items ORDER BY rowid")]
+        assert rows == ["before"]
+
+    def test_acceptance_scenario_h_failed_implementation_restores_checkpoint(
+        self, onus_bin: Path, rules_path: Path, tmp_path: Path
+    ):
+        app_file = tmp_path / "allowed" / "app.py"
+        created_file = tmp_path / "allowed" / "scratch.txt"
+        db_target = tmp_path / "data" / "app.sqlite"
+        app_file.parent.mkdir()
+        db_target.parent.mkdir()
+        app_file.write_text("print('safe')\n", encoding="utf-8")
+        with sqlite3.connect(db_target) as con:
+            con.execute("CREATE TABLE items (name TEXT)")
+            con.execute("INSERT INTO items VALUES ('safe')")
+
+        unresolved_report = None
+        with Guardian(
+            workspace_root=tmp_path,
+            contract=make_contract(allowed_paths=["allowed/**", "data/**"]),
+            bin_path=str(onus_bin),
+            rules_path=str(rules_path),
+            db_path=str(tmp_path / "audit.db"),
+        ) as guardian:
+            guardian.file_write("allowed/app.py", "print('broken')\n", action_group="attempt")
+            guardian.file_write("allowed/scratch.txt", "temporary\n", action_group="attempt")
+            guardian.db_execute(
+                "data/app.sqlite",
+                "INSERT INTO items VALUES (?)",
+                ("broken",),
+                action_group="attempt",
+            )
+            restore = guardian.restore_checkpoint()
+            unresolved_report = restore.to_dict()
+
+        assert restore.status == "CHECKPOINT_RESTORED"
+        assert restore.restored is True
+        assert app_file.read_text(encoding="utf-8") == "print('safe')\n"
+        assert not created_file.exists()
+        with sqlite3.connect(db_target) as con:
+            rows = [row[0] for row in con.execute("SELECT name FROM items ORDER BY rowid")]
+        assert rows == ["safe"]
+        assert unresolved_report["message"].startswith("Restored repository files")
+        assert len(unresolved_report["verification_result"]["files"]) >= 2
+
+    def test_external_recovery_interfaces_report_unsupported_state(
+        self, onus_bin: Path, rules_path: Path, tmp_path: Path
+    ):
+        adapter = UnsupportedExternalRecoveryAdapter("postgresql")
+        assert adapter.classify({"sql": "UPDATE users SET name = 'x'"}) == ReversibilityClass.R4
+
+        with Guardian(
+            workspace_root=tmp_path,
+            contract=make_contract(),
+            bin_path=str(onus_bin),
+            rules_path=str(rules_path),
+            db_path=str(tmp_path / "audit.db"),
+        ) as guardian:
+            record = guardian.record_external_compensation_required(
+                "postgresql",
+                "postgres://example/db",
+                {"sql": "UPDATE users SET name = 'x'"},
+            )
+            result = guardian.revert_action(record.action_id)
+
+        assert result.status == "ROLLBACK_UNSUPPORTED"
+        assert result.restored is False
+        assert result.unsupported[0]["resource_type"] == "postgresql"
+        assert result.unsupported[0]["supported"] is False
 
     def test_file_write_rejects_changed_target_after_evaluation(self, tmp_path: Path):
         target = tmp_path / "race.txt"

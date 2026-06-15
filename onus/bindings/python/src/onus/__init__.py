@@ -83,14 +83,128 @@ class OnusEvaluationError(RuntimeError):
     """Raised when Onus Core cannot return a trustworthy verdict."""
 
 
+class OnusRollbackUnsupportedError(RuntimeError):
+    """Raised when a resource has no implemented rollback adapter."""
+
+
+class ReversibilityClass:
+    R0 = "R0_READ_ONLY"
+    R1 = "R1_AUTOMATICALLY_REVERSIBLE"
+    R2 = "R2_SNAPSHOT_REVERSIBLE"
+    R3 = "R3_COMPENSATABLE"
+    R4 = "R4_IRREVERSIBLE_OR_MITIGATION_ONLY"
+
+    LABELS = {
+        R0: "read-only",
+        R1: "automatically reversible",
+        R2: "snapshot reversible",
+        R3: "compensatable external action",
+        R4: "irreversible or mitigation-only",
+    }
+
+
 @dataclass
 class RollbackRecord:
     action_id: str
     action_type: str
     target: str
+    reversibility_class: str = ReversibilityClass.R4
+    group_id: str = "default"
     before_exists: bool = False
     before_content: Optional[str] = None
     backup_path: Optional[str] = None
+    pre_state: dict[str, Any] = field(default_factory=dict)
+    proposed_mutation: dict[str, Any] = field(default_factory=dict)
+    decision: str = ""
+    executed_payload: dict[str, Any] = field(default_factory=dict)
+    post_state: dict[str, Any] = field(default_factory=dict)
+    inverse_operation: dict[str, Any] = field(default_factory=dict)
+    compensation_metadata: dict[str, Any] = field(default_factory=dict)
+    verification_result: dict[str, Any] = field(default_factory=dict)
+    rollback_status: str = "pending"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "action_id": self.action_id,
+            "action_type": self.action_type,
+            "target": self.target,
+            "reversibility_class": self.reversibility_class,
+            "reversibility_label": ReversibilityClass.LABELS.get(
+                self.reversibility_class, "unknown"
+            ),
+            "group_id": self.group_id,
+            "before_exists": self.before_exists,
+            "backup_path": self.backup_path,
+            "pre_state": self.pre_state,
+            "proposed_mutation": self.proposed_mutation,
+            "decision": self.decision,
+            "executed_payload": self.executed_payload,
+            "post_state": self.post_state,
+            "inverse_operation": self.inverse_operation,
+            "compensation_metadata": self.compensation_metadata,
+            "verification_result": self.verification_result,
+            "rollback_status": self.rollback_status,
+        }
+
+
+@dataclass
+class RollbackResult:
+    status: str
+    action_ids: list[str] = field(default_factory=list)
+    restored: bool = False
+    unsupported: list[dict[str, Any]] = field(default_factory=list)
+    verification_result: dict[str, Any] = field(default_factory=dict)
+    message: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "action_ids": self.action_ids,
+            "restored": self.restored,
+            "unsupported": self.unsupported,
+            "verification_result": self.verification_result,
+            "message": self.message,
+        }
+
+
+class RecoveryAdapter:
+    """Extension point for resource-specific recovery adapters."""
+
+    resource_type = "unsupported"
+
+    def classify(self, _payload: dict[str, Any]) -> str:
+        return ReversibilityClass.R4
+
+    def compensation_metadata(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "resource_type": self.resource_type,
+            "supported": False,
+            "reason": f"{self.resource_type} rollback adapter is not implemented.",
+            "payload_hash": _stable_hash(payload),
+        }
+
+
+class RepositoryFileRecoveryAdapter(RecoveryAdapter):
+    resource_type = "repository_file"
+
+    def classify(self, payload: dict[str, Any]) -> str:
+        if payload.get("operation") == "file_read":
+            return ReversibilityClass.R0
+        if payload.get("before_exists"):
+            return ReversibilityClass.R2
+        return ReversibilityClass.R1
+
+
+class SQLiteRecoveryAdapter(RecoveryAdapter):
+    resource_type = "sqlite"
+
+    def classify(self, _payload: dict[str, Any]) -> str:
+        return ReversibilityClass.R2
+
+
+class UnsupportedExternalRecoveryAdapter(RecoveryAdapter):
+    def __init__(self, resource_type: str) -> None:
+        self.resource_type = resource_type
 
 
 @dataclass
@@ -204,6 +318,36 @@ class PromptIntakeResult:
             proposed_contract=TaskContract.from_dict(contract_data) if contract_data else None,
             raw=data,
         )
+
+
+def _stable_hash(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
+
+
+def _content_descriptor(content: Optional[Union[str, bytes]]) -> dict[str, Any]:
+    if content is None:
+        return {"exists": False, "sha256": None, "size": 0}
+    data = content.encode("utf-8") if isinstance(content, str) else content
+    return {
+        "exists": True,
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "size": len(data),
+        "content_stored": "snapshot_or_operation_target",
+    }
+
+
+def _redact_sensitive_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _redact_sensitive_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact_sensitive_value(item) for item in value]
+    if isinstance(value, str):
+        lower = value.lower()
+        if any(token in lower for token in ["secret", "token", "password", "api_key", "apikey"]):
+            return "[REDACTED]"
+    return value
 
 
 class OnusClient:
@@ -538,7 +682,17 @@ class Guardian:
         self._backup_dir.mkdir(parents=True, exist_ok=True)
         self._checkpoint_dir = self._journal_dir / "checkpoints"
         self._checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        self._checkpoint_path = self._checkpoint_dir / f"{self.session_id}.json"
+        self._checkpoint_root = self._checkpoint_dir / self.session_id
+        self._checkpoint_root.mkdir(parents=True, exist_ok=True)
+        self._checkpoint_path = self._checkpoint_root / "checkpoint.json"
+        self._file_recovery = RepositoryFileRecoveryAdapter()
+        self._sqlite_recovery = SQLiteRecoveryAdapter()
+        self._external_recovery_adapters = {
+            "postgresql": UnsupportedExternalRecoveryAdapter("postgresql"),
+            "api": UnsupportedExternalRecoveryAdapter("api"),
+            "deployment": UnsupportedExternalRecoveryAdapter("deployment"),
+            "infrastructure": UnsupportedExternalRecoveryAdapter("infrastructure"),
+        }
         self._corrections: list[str] = []
         self._old_missing_contract_behavior: Optional[str] = None
 
@@ -622,6 +776,10 @@ class Guardian:
     def checkpoint_path(self) -> Path:
         return self._checkpoint_path
 
+    @property
+    def recovery_records(self) -> list[RollbackRecord]:
+        return list(self._rollbacks)
+
     def evaluate(self, action_type: str, payload: dict[str, Any], *, tool: str) -> OnusResult:
         result = self.client.evaluate(
             action_type,
@@ -637,11 +795,36 @@ class Guardian:
             self._corrections.append(result.correction)
         return result
 
-    def file_write(self, path: Union[str, os.PathLike[str]], content: str, *, tool: str = "Write") -> OnusResult:
+    def file_read(
+        self,
+        path: Union[str, os.PathLike[str]],
+        *,
+        tool: str = "Read",
+    ) -> tuple[OnusResult, str]:
+        target = self._resolve(path)
+        state = self._file_state(target)
+        payload = {
+            "file_path": str(target),
+            "path": str(target),
+            "sha256": state["sha256"],
+            "size": state["size"],
+        }
+        result = self.evaluate("file_read", payload, tool=tool)
+        return result, target.read_text(encoding="utf-8")
+
+    def file_write(
+        self,
+        path: Union[str, os.PathLike[str]],
+        content: str,
+        *,
+        tool: str = "Write",
+        action_group: str = "default",
+    ) -> OnusResult:
         target = self._resolve(path)
         before_state = self._file_state(target)
         before_exists = before_state["exists"]
         before_content = target.read_text(encoding="utf-8") if before_exists else None
+        backup_path = self._snapshot_file(target, "before") if before_exists else None
         payload = {
             "file_path": str(target),
             "path": str(target),
@@ -654,14 +837,43 @@ class Guardian:
         result = self.evaluate("file_write", payload, tool=tool)
         self._assert_file_unchanged(target, before_state)
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
+        target.write_text(content, encoding="utf-8", newline="")
+        post_state = self._file_state(target)
         self._record_rollback(
             RollbackRecord(
                 action_id=result.action_id or str(uuid.uuid4()),
                 action_type="file_write",
                 target=str(target),
+                reversibility_class=self._file_recovery.classify(
+                    {"operation": "file_write", "before_exists": before_exists}
+                ),
+                group_id=action_group,
                 before_exists=before_exists,
-                before_content=before_content,
+                before_content=None,
+                backup_path=backup_path,
+                pre_state={**before_state, "backup_path": backup_path},
+                proposed_mutation={
+                    "operation": "file_write",
+                    "path": str(target),
+                    "content_sha256": _content_descriptor(content)["sha256"],
+                    "size": _content_descriptor(content)["size"],
+                },
+                decision=result.decision,
+                executed_payload={
+                    "operation": "file_write",
+                    "path": str(target),
+                    "content_sha256": _content_descriptor(content)["sha256"],
+                    "size": _content_descriptor(content)["size"],
+                    "raw_content_in_journal": False,
+                },
+                post_state=post_state,
+                inverse_operation={
+                    "type": "restore_file_snapshot" if before_exists else "delete_created_file",
+                    "backup_path": backup_path,
+                    "target": str(target),
+                },
+                compensation_metadata={},
+                verification_result={"status": "recorded", "post_state": post_state},
             )
         )
         return result
@@ -693,11 +905,18 @@ class Guardian:
         )
         return result, completed
 
-    def file_delete(self, path: Union[str, os.PathLike[str]], *, tool: str = "Delete") -> OnusResult:
+    def file_delete(
+        self,
+        path: Union[str, os.PathLike[str]],
+        *,
+        tool: str = "Delete",
+        action_group: str = "default",
+    ) -> OnusResult:
         target = self._resolve(path)
         before_state = self._file_state(target)
         before_exists = before_state["exists"]
         before_content = target.read_text(encoding="utf-8") if before_exists else None
+        backup_path = self._snapshot_file(target, "before") if before_exists else None
         payload = {
             "file_path": str(target),
             "path": str(target),
@@ -710,13 +929,33 @@ class Guardian:
         self._assert_file_unchanged(target, before_state)
         if target.exists():
             target.unlink()
+        post_state = self._file_state(target)
         self._record_rollback(
             RollbackRecord(
                 action_id=result.action_id or str(uuid.uuid4()),
                 action_type="file_delete",
                 target=str(target),
+                reversibility_class=ReversibilityClass.R2 if before_exists else ReversibilityClass.R1,
+                group_id=action_group,
                 before_exists=before_exists,
-                before_content=before_content,
+                before_content=None,
+                backup_path=backup_path,
+                pre_state={**before_state, "backup_path": backup_path},
+                proposed_mutation={"operation": "file_delete", "path": str(target)},
+                decision=result.decision,
+                executed_payload={
+                    "operation": "file_delete",
+                    "path": str(target),
+                    "raw_content_in_journal": False,
+                },
+                post_state=post_state,
+                inverse_operation={
+                    "type": "restore_file_snapshot" if before_exists else "noop_missing_file",
+                    "backup_path": backup_path,
+                    "target": str(target),
+                },
+                compensation_metadata={},
+                verification_result={"status": "recorded", "post_state": post_state},
             )
         )
         return result
@@ -730,6 +969,7 @@ class Guardian:
         body: Optional[Union[bytes, str]] = None,
         timeout: float = 10.0,
         tool: str = "ApiCall",
+        action_group: str = "default",
     ) -> tuple[OnusResult, bytes]:
         payload = {
             "method": method.upper(),
@@ -741,7 +981,86 @@ class Guardian:
         data = body.encode("utf-8") if isinstance(body, str) else body
         req = urllib_request.Request(url, data=data, method=method.upper(), headers=headers or {})
         with urllib_request.urlopen(req, timeout=timeout) as response:
-            return result, response.read()
+            response_data = response.read()
+        adapter = self._external_recovery_adapters["api"]
+        self._record_rollback(
+            RollbackRecord(
+                action_id=result.action_id or str(uuid.uuid4()),
+                action_type="api_call",
+                target=url,
+                reversibility_class=ReversibilityClass.R3,
+                group_id=action_group,
+                before_exists=False,
+                pre_state={"external_resource": url, "captured": False},
+                proposed_mutation={
+                    "operation": "api_call",
+                    "method": method.upper(),
+                    "url": url,
+                    "body_hash": _stable_hash(payload.get("body_preview")),
+                },
+                decision=result.decision,
+                executed_payload={
+                    "operation": "api_call",
+                    "method": method.upper(),
+                    "url": url,
+                    "body_hash": _stable_hash(payload.get("body_preview")),
+                    "raw_body_in_journal": False,
+                },
+                post_state={
+                    "response_size": len(response_data),
+                    "response_sha256": hashlib.sha256(response_data).hexdigest(),
+                },
+                inverse_operation={"type": "unsupported_external_rollback"},
+                compensation_metadata=adapter.compensation_metadata(payload),
+                verification_result={
+                    "status": "unsupported",
+                    "reason": "API compensation requires a provider-specific adapter.",
+                },
+                rollback_status="unsupported",
+            )
+        )
+        return result, response_data
+
+    def record_external_compensation_required(
+        self,
+        resource_type: str,
+        target: str,
+        payload: dict[str, Any],
+        *,
+        action_group: str = "default",
+    ) -> RollbackRecord:
+        adapter = self._external_recovery_adapters.get(
+            resource_type, UnsupportedExternalRecoveryAdapter(resource_type)
+        )
+        record = RollbackRecord(
+            action_id=str(uuid.uuid4()),
+            action_type=resource_type,
+            target=target,
+            reversibility_class=ReversibilityClass.R3,
+            group_id=action_group,
+            pre_state={"external_resource": target, "captured": False},
+            proposed_mutation={
+                "operation": resource_type,
+                "target": target,
+                "payload_hash": _stable_hash(payload),
+            },
+            decision="external_action_recorded",
+            executed_payload={
+                "operation": resource_type,
+                "target": target,
+                "payload_hash": _stable_hash(payload),
+                "raw_payload_in_journal": False,
+            },
+            inverse_operation={"type": "unsupported_external_rollback"},
+            compensation_metadata=adapter.compensation_metadata(payload),
+            verification_result={
+                "status": "unsupported",
+                "reason": f"{resource_type} compensation requires a provider-specific adapter.",
+            },
+            rollback_status="unsupported",
+        )
+        self._record_rollback(record)
+        return record
 
     def db_execute(
         self,
@@ -750,6 +1069,7 @@ class Guardian:
         params: Union[tuple[Any, ...], list[Any]] = (),
         *,
         tool: str = "SQLite",
+        action_group: str = "default",
     ) -> OnusResult:
         target = self._resolve(db_path)
         before_state = self._file_state(target)
@@ -762,10 +1082,7 @@ class Guardian:
         result = self.evaluate("db_mutation", payload, tool=tool)
         self._assert_file_unchanged(target, before_state)
 
-        backup_path = None
-        if target.exists():
-            backup_path = str(self._backup_dir / f"{uuid.uuid4()}.sqlite")
-            shutil.copy2(target, backup_path)
+        backup_path = self._snapshot_file(target, "before") if target.exists() else None
 
         target.parent.mkdir(parents=True, exist_ok=True)
         con = sqlite3.connect(target)
@@ -774,14 +1091,40 @@ class Guardian:
             con.commit()
         finally:
             con.close()
+        post_state = self._file_state(target)
 
         self._record_rollback(
             RollbackRecord(
                 action_id=result.action_id or str(uuid.uuid4()),
                 action_type="db_mutation",
                 target=str(target),
+                reversibility_class=self._sqlite_recovery.classify(payload),
+                group_id=action_group,
                 before_exists=backup_path is not None,
                 backup_path=backup_path,
+                pre_state={**before_state, "backup_path": backup_path},
+                proposed_mutation={
+                    "operation": "sqlite_execute",
+                    "db_path": str(target),
+                    "sql_sha256": hashlib.sha256(sql.encode("utf-8")).hexdigest(),
+                    "params_hash": _stable_hash(list(params)),
+                },
+                decision=result.decision,
+                executed_payload={
+                    "operation": "sqlite_execute",
+                    "db_path": str(target),
+                    "sql_sha256": hashlib.sha256(sql.encode("utf-8")).hexdigest(),
+                    "params": _redact_sensitive_value(list(params)),
+                    "raw_sql_in_journal": False,
+                },
+                post_state=post_state,
+                inverse_operation={
+                    "type": "restore_sqlite_snapshot" if backup_path else "delete_created_sqlite",
+                    "backup_path": backup_path,
+                    "target": str(target),
+                },
+                compensation_metadata={},
+                verification_result={"status": "recorded", "post_state": post_state},
             )
         )
         return result
@@ -789,20 +1132,189 @@ class Guardian:
     def rollback_last(self) -> Optional[RollbackRecord]:
         if not self._rollbacks:
             return None
-        record = self._rollbacks.pop()
-        target = Path(record.target)
-        if record.action_type in ("file_write", "file_delete"):
-            if record.before_exists:
+        record = self._rollbacks[-1]
+        self._revert_record(record)
+        if record.rollback_status == "reverted":
+            self._rollbacks.pop()
+        return record
+
+    def revert_action(self, action_id: str) -> RollbackResult:
+        record = self._find_rollback(action_id)
+        if record is None:
+            return RollbackResult(
+                status="NOT_FOUND",
+                action_ids=[action_id],
+                restored=False,
+                message="No recovery record exists for this action.",
+            )
+        if record.rollback_status == "unsupported":
+            return RollbackResult(
+                status="ROLLBACK_UNSUPPORTED",
+                action_ids=[action_id],
+                restored=False,
+                unsupported=[record.compensation_metadata],
+                verification_result=record.verification_result,
+                message="This action requires compensation or mitigation; rollback is unsupported.",
+            )
+        self._revert_record(record)
+        return RollbackResult(
+            status="REVERTED" if record.rollback_status == "reverted" else "VERIFY_FAILED",
+            action_ids=[record.action_id],
+            restored=record.rollback_status == "reverted",
+            verification_result=record.verification_result,
+            message=record.verification_result.get("message", ""),
+        )
+
+    def revert_action_group(self, group_id: str) -> RollbackResult:
+        records = [
+            record
+            for record in self._rollbacks
+            if record.group_id == group_id and record.rollback_status in {"pending", "unsupported"}
+        ]
+        return self._revert_records(records, f"No pending actions found for group {group_id}.")
+
+    def revert_session(self) -> RollbackResult:
+        records = [
+            record
+            for record in self._rollbacks
+            if record.rollback_status in {"pending", "unsupported"}
+        ]
+        return self._revert_records(records, "No pending actions found for this session.")
+
+    def restore_checkpoint(self) -> RollbackResult:
+        if not self._checkpoint_path.exists():
+            return RollbackResult(
+                status="CHECKPOINT_MISSING",
+                restored=False,
+                message="No session checkpoint exists to restore.",
+            )
+        session_result = self.revert_session()
+        checkpoint = json.loads(self._checkpoint_path.read_text(encoding="utf-8"))
+        verification: dict[str, Any] = {"files": []}
+        restored = True
+        for item in checkpoint.get("files", []):
+            target = self._resolve(item["path"])
+            backup_path = item.get("backup_path")
+            if item.get("exists") and backup_path:
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(record.before_content or "", encoding="utf-8")
+                shutil.copy2(backup_path, target)
             elif target.exists():
                 target.unlink()
-        elif record.action_type == "db_mutation":
+            current = self._file_state(target)
+            ok = (
+                current["exists"] == item.get("exists")
+                and current["sha256"] == item.get("sha256")
+                and current["size"] == item.get("size")
+            )
+            restored = restored and ok
+            verification["files"].append(
+                {
+                    "path": item["path"],
+                    "verified": ok,
+                    "expected_sha256": item.get("sha256"),
+                    "actual_sha256": current["sha256"],
+                }
+            )
+        if session_result.unsupported:
+            restored = False
+        return RollbackResult(
+            status="CHECKPOINT_RESTORED" if restored else "CHECKPOINT_PARTIAL",
+            action_ids=session_result.action_ids,
+            restored=restored,
+            unsupported=session_result.unsupported,
+            verification_result=verification,
+            message=(
+                "Restored repository files and SQLite state to the safe checkpoint."
+                if restored
+                else "Checkpoint restore completed with unsupported or failed reversions."
+            ),
+        )
+
+    def _revert_records(self, records: list[RollbackRecord], empty_message: str) -> RollbackResult:
+        if not records:
+            return RollbackResult(status="NOOP", restored=True, message=empty_message)
+        unsupported: list[dict[str, Any]] = []
+        reverted: list[str] = []
+        verification: dict[str, Any] = {"actions": []}
+        for record in reversed(records):
+            if record.rollback_status == "unsupported":
+                unsupported.append(record.compensation_metadata)
+                verification["actions"].append(
+                    {
+                        "action_id": record.action_id,
+                        "status": "unsupported",
+                        "reason": record.compensation_metadata.get("reason", "unsupported"),
+                    }
+                )
+                continue
+            self._revert_record(record)
+            reverted.append(record.action_id)
+            verification["actions"].append(
+                {
+                    "action_id": record.action_id,
+                    "status": record.rollback_status,
+                    "verification": record.verification_result,
+                }
+            )
+        restored = not unsupported and all(
+            item["status"] == "reverted" for item in verification["actions"]
+        )
+        return RollbackResult(
+            status="REVERTED" if restored else "PARTIAL_OR_UNSUPPORTED",
+            action_ids=reverted,
+            restored=restored,
+            unsupported=unsupported,
+            verification_result=verification,
+            message=(
+                "All reversible actions restored."
+                if restored
+                else "Some actions could not be rolled back and require mitigation."
+            ),
+        )
+
+    def _revert_record(self, record: RollbackRecord) -> None:
+        target = Path(record.target)
+        if record.rollback_status == "reverted":
+            return
+        if record.rollback_status == "unsupported":
+            return
+        if record.action_type in ("file_write", "file_delete", "db_mutation"):
             if record.backup_path:
+                target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(record.backup_path, target)
             elif target.exists():
                 target.unlink()
-        return record
+        else:
+            record.rollback_status = "unsupported"
+            record.verification_result = {
+                "status": "unsupported",
+                "message": "No rollback adapter exists for this action type.",
+            }
+            self._write_recovery_record(record)
+            return
+
+        current = self._file_state(target)
+        expected = {
+            "exists": record.pre_state.get("exists", False),
+            "sha256": record.pre_state.get("sha256"),
+            "size": record.pre_state.get("size"),
+        }
+        verified = current == expected
+        record.rollback_status = "reverted" if verified else "verification_failed"
+        record.verification_result = {
+            "status": record.rollback_status,
+            "verified": verified,
+            "expected": expected,
+            "actual": current,
+            "message": "State restored." if verified else "Restored state did not match pre-state.",
+        }
+        self._write_recovery_record(record)
+
+    def _find_rollback(self, action_id: str) -> Optional[RollbackRecord]:
+        for record in reversed(self._rollbacks):
+            if record.action_id == action_id:
+                return record
+        return None
 
     def run_agent(self, agent: Any, *args: Any, **kwargs: Any) -> Any:
         """Run an agent object with this Guardian injected.
@@ -821,28 +1333,37 @@ class Guardian:
 
     def _record_rollback(self, record: RollbackRecord) -> None:
         self._rollbacks.append(record)
+        self._write_recovery_record(record)
+
+    def _write_recovery_record(self, record: RollbackRecord) -> None:
         journal = self._journal_dir / "rollback_journal.jsonl"
         with journal.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(record.__dict__, sort_keys=True) + "\n")
+            fh.write(json.dumps(record.to_dict(), sort_keys=True) + "\n")
+
+    def _snapshot_file(self, path: Path, label: str) -> str:
+        snapshot_path = self._backup_dir / f"{uuid.uuid4()}.{label}.snapshot"
+        snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, snapshot_path)
+        return str(snapshot_path)
 
     def _create_checkpoint(self) -> None:
         files: list[dict[str, Any]] = []
         if self.contract is not None:
             for raw_path in self.contract.allowed_paths:
-                if any(marker in raw_path for marker in "*?[]"):
-                    continue
-                target = self._resolve(raw_path)
-                if target.is_file():
+                for target in self._checkpoint_targets(raw_path):
                     state = self._file_state(target)
                     try:
                         checkpoint_path = str(target.relative_to(self.workspace_root))
                     except ValueError:
                         checkpoint_path = str(target)
+                    backup_path = self._checkpoint_snapshot(target) if state["exists"] else None
                     files.append(
                         {
                             "path": checkpoint_path,
+                            "exists": state["exists"],
                             "sha256": state["sha256"],
                             "size": state["size"],
+                            "backup_path": backup_path,
                         }
                     )
 
@@ -861,11 +1382,43 @@ class Guardian:
             encoding="utf-8",
         )
 
+    def _checkpoint_targets(self, raw_path: str) -> list[Path]:
+        normalized = raw_path.replace("\\", "/")
+        if normalized.endswith("/**"):
+            base = self._resolve(normalized[:-3])
+            candidates = [path for path in base.rglob("*") if path.is_file()] if base.exists() else []
+        elif any(marker in raw_path for marker in "*?[]"):
+            candidates = [path for path in self.workspace_root.glob(raw_path) if path.is_file()]
+        else:
+            target = self._resolve(raw_path)
+            candidates = [target] if target.exists() and target.is_file() else []
+        safe_candidates = []
+        for candidate in candidates:
+            resolved = candidate.resolve()
+            if self._within_workspace(resolved) and ".onus" not in resolved.parts:
+                safe_candidates.append(resolved)
+        return safe_candidates[:1000]
+
+    def _checkpoint_snapshot(self, path: Path) -> str:
+        digest = self._file_state(path)["sha256"] or str(uuid.uuid4())
+        snapshot_path = self._checkpoint_root / "files" / digest[:2] / digest
+        snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+        if not snapshot_path.exists():
+            shutil.copy2(path, snapshot_path)
+        return str(snapshot_path)
+
     def _resolve(self, path: Union[str, os.PathLike[str]]) -> Path:
         candidate = Path(path)
         if not candidate.is_absolute():
             candidate = self.workspace_root / candidate
         return candidate.resolve()
+
+    def _within_workspace(self, path: Path) -> bool:
+        try:
+            path.resolve().relative_to(self.workspace_root)
+            return True
+        except ValueError:
+            return False
 
     def _file_state(self, path: Path) -> dict[str, Any]:
         if not path.exists():
@@ -907,9 +1460,16 @@ __all__ = [
     "Guardian",
     "OnusBlockError",
     "OnusEvaluationError",
+    "OnusRollbackUnsupportedError",
     "OnusClient",
     "OnusResult",
     "RollbackRecord",
+    "RollbackResult",
+    "ReversibilityClass",
+    "RecoveryAdapter",
+    "RepositoryFileRecoveryAdapter",
+    "SQLiteRecoveryAdapter",
+    "UnsupportedExternalRecoveryAdapter",
     "TaskContract",
     "ChangeBudget",
     "RequiredEvidence",
