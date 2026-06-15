@@ -1,4 +1,5 @@
 pub mod approvals;
+pub mod authority;
 pub mod claude_hook;
 pub mod contract;
 pub mod daemon_cmd;
@@ -32,6 +33,9 @@ pub struct Cli {
 pub enum Commands {
     /// Serve the local approval UI for pending escalations
     Approvals(approvals::ApprovalsArgs),
+
+    /// Manage narrow L4 broker-owned authority proofs
+    Authority(authority::AuthorityArgs),
 
     /// Evaluate a single action and return a verdict (used by Claude Code preToolUse hook)
     Evaluate(evaluate::EvaluateArgs),
