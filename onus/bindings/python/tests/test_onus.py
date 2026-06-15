@@ -1130,6 +1130,240 @@ print(json.dumps({
 
 
 class TestMcpProxyRuntime:
+    def test_mcp_gateway_initializes_discovers_allows_and_receipts(
+        self, onus_bin: Path, rules_path: Path, tmp_path: Path
+    ):
+        db_path = tmp_path / "audit.db"
+        session_id = "mcp-gateway-allow-session"
+        client = OnusClient(
+            bin_path=str(onus_bin),
+            rules_path=str(rules_path),
+            db_path=str(db_path),
+        )
+        client.start_contract(
+            make_contract(
+                session_id=session_id,
+                allowed_paths=[],
+                protected_paths=[],
+                forbidden_actions=[],
+                approval_required_actions=[],
+            ),
+            workspace_root=tmp_path,
+            agent_name="mcp-runtime-allow-test",
+        )
+        fake_server = self._write_fake_mcp_server(tmp_path)
+        side_effect = tmp_path / "side-effect.txt"
+        proc = self._start_mcp_proxy(
+            onus_bin,
+            db_path,
+            session_id,
+            fake_server,
+            side_effect,
+        )
+        try:
+            initialized = self._mcp_request(
+                proc,
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {},
+                        "clientInfo": {"name": "onus-runtime-client", "version": "test"},
+                    },
+                },
+            )
+            assert initialized["result"]["capabilities"]["tools"]["listChanged"] is False
+            assert initialized["result"]["_onus_gateway"]["gateway"] == "onus-mcp-proxy"
+            assert initialized["result"]["_onus_gateway"]["server_identity"]["identity_hash"]
+            assert "Direct client connections" in initialized["result"]["_onus_gateway"]["direct_server_bypass"]
+
+            discovered = self._mcp_request(
+                proc,
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+            )
+            tool_names = {tool["name"] for tool in discovered["result"]["tools"]}
+            assert {"echo.safe", "side.effect", "large.response", "slow.response"} <= tool_names
+            assert discovered["result"]["_onus_gateway"]["server_identity"]["identity_hash"]
+
+            allowed = self._mcp_request(
+                proc,
+                self._mcp_tool_message(3, "echo.safe", {"query": "select 1"}),
+            )
+            assert allowed["result"]["content"][0]["text"] == "forwarded:echo.safe"
+            receipt = allowed["result"]["_onus_receipt"]
+            assert receipt["decision"] == "allow"
+            assert receipt["action_id"]
+            assert receipt["canonical_payload_hash"]
+
+            con = sqlite3.connect(db_path)
+            try:
+                row = con.execute(
+                    "SELECT action_id, payload_hash, verdict, payload FROM actions WHERE session_id = ? ORDER BY id DESC LIMIT 1",
+                    (session_id,),
+                ).fetchone()
+            finally:
+                con.close()
+            assert row[0] == receipt["action_id"]
+            assert row[1] == receipt["canonical_payload_hash"]
+            assert row[2] == "allow"
+            assert "echo.safe" in row[3]
+        finally:
+            self._stop_process(proc)
+
+    def test_mcp_gateway_denies_before_synthetic_side_effect(
+        self, onus_bin: Path, rules_path: Path, tmp_path: Path
+    ):
+        db_path = tmp_path / "audit.db"
+        session_id = "mcp-gateway-deny-session"
+        client = OnusClient(
+            bin_path=str(onus_bin),
+            rules_path=str(rules_path),
+            db_path=str(db_path),
+        )
+        client.start_contract(
+            make_contract(
+                session_id=session_id,
+                allowed_paths=[],
+                protected_paths=[],
+                forbidden_actions=[],
+                approval_required_actions=[],
+            ),
+            workspace_root=tmp_path,
+            agent_name="mcp-runtime-deny-test",
+        )
+        fake_server = self._write_fake_mcp_server(tmp_path)
+        side_effect = tmp_path / "side-effect-denied.txt"
+        proc = self._start_mcp_proxy(
+            onus_bin,
+            db_path,
+            session_id,
+            fake_server,
+            side_effect,
+        )
+        try:
+            denied = self._mcp_request(
+                proc,
+                self._mcp_tool_message(
+                    1,
+                    "side.effect",
+                    {"command": "rm -rf /important", "path": str(side_effect)},
+                ),
+            )
+            assert denied["error"]["code"] == -32001
+            assert "Blocked by Onus" in denied["error"]["message"]
+            assert denied["error"]["data"]["rule_id"] == "MCP_SAFETY_001"
+            assert not side_effect.exists()
+        finally:
+            self._stop_process(proc)
+
+    def test_mcp_gateway_handles_timeout_malformed_response_size_and_secret_redaction(
+        self, onus_bin: Path, rules_path: Path, tmp_path: Path
+    ):
+        db_path = tmp_path / "audit.db"
+        session_id = "mcp-gateway-error-session"
+        client = OnusClient(
+            bin_path=str(onus_bin),
+            rules_path=str(rules_path),
+            db_path=str(db_path),
+        )
+        client.start_contract(
+            make_contract(
+                session_id=session_id,
+                allowed_paths=[],
+                protected_paths=[],
+                forbidden_actions=[],
+                approval_required_actions=[],
+            ),
+            workspace_root=tmp_path,
+            agent_name="mcp-runtime-error-test",
+        )
+
+        fake_server = self._write_fake_mcp_server(tmp_path)
+        side_effect = tmp_path / "unused.txt"
+        timeout_proc = self._start_mcp_proxy(
+            onus_bin,
+            db_path,
+            session_id,
+            fake_server,
+            side_effect,
+            extra_proxy_args=["--response-timeout-ms", "100"],
+        )
+        try:
+            timed_out = self._mcp_request(
+                timeout_proc,
+                self._mcp_tool_message(1, "slow.response", {"sleep_ms": 1000}),
+            )
+            assert timed_out["error"]["code"] == -32098
+            assert "timed out" in timed_out["error"]["message"]
+        finally:
+            self._stop_process(timeout_proc)
+
+        malformed_proc = self._start_mcp_proxy(
+            onus_bin,
+            db_path,
+            session_id,
+            fake_server,
+            side_effect,
+        )
+        try:
+            malformed = self._mcp_raw_json(malformed_proc, b'{"jsonrpc":')
+            assert malformed["error"]["code"] == -32700
+            assert "invalid MCP JSON" in malformed["error"]["message"]
+        finally:
+            self._stop_process(malformed_proc)
+
+        large_proc = self._start_mcp_proxy(
+            onus_bin,
+            db_path,
+            session_id,
+            fake_server,
+            side_effect,
+            extra_proxy_args=["--max-response-bytes", "512"],
+        )
+        try:
+            too_large = self._mcp_request(
+                large_proc,
+                self._mcp_tool_message(2, "large.response", {"size": 4096}),
+            )
+            assert too_large["error"]["code"] == -32098
+            assert "size" in too_large["error"]["message"]
+        finally:
+            self._stop_process(large_proc)
+
+        secret_proc = self._start_mcp_proxy(
+            onus_bin,
+            db_path,
+            session_id,
+            fake_server,
+            side_effect,
+        )
+        try:
+            secret = self._mcp_request(
+                secret_proc,
+                self._mcp_tool_message(3, "echo.safe", {"api_key": "raw-secret-123"}),
+            )
+            assert secret["error"]["code"] == -32001
+            assert secret["error"]["data"]["rule_id"] == "SECRET_001"
+        finally:
+            self._stop_process(secret_proc)
+
+        con = sqlite3.connect(db_path)
+        try:
+            payloads = [
+                row[0]
+                for row in con.execute(
+                    "SELECT payload FROM actions WHERE session_id = ?",
+                    (session_id,),
+                )
+            ]
+        finally:
+            con.close()
+        assert payloads
+        assert not any("raw-secret-123" in payload for payload in payloads)
+        assert any("[REDACTED]" in payload for payload in payloads)
+
     def test_acceptance_scenario_e_mcp_proxy_rejects_changed_approval_payload(
         self, onus_bin: Path, rules_path: Path, tmp_path: Path
     ):
@@ -1281,32 +1515,162 @@ while True:
             assert forwarded["result"]["content"][0]["text"] == "forwarded"
 
             changed = self._mcp_call(proc, 3, {"query": "drop table users"})
-            assert changed["error"]["code"] == -32000
-            assert "Pending human approval" in changed["error"]["message"]
+            assert changed["error"]["code"] == -32001
+            assert changed["error"]["data"]["rule_id"] == "MCP_SAFETY_001"
         finally:
-            if proc.stdin:
-                proc.stdin.close()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait(timeout=5)
+            self._stop_process(proc)
 
     @staticmethod
-    def _mcp_call(proc: subprocess.Popen, request_id: int, arguments: dict[str, str]) -> dict:
-        assert proc.stdin is not None
-        assert proc.stdout is not None
-        message = {
+    def _mcp_tool_message(request_id: int, name: str, arguments: dict[str, object]) -> dict:
+        return {
             "jsonrpc": "2.0",
             "id": request_id,
             "method": "tools/call",
-            "params": {"name": "db.query", "arguments": arguments},
+            "params": {"name": name, "arguments": arguments},
         }
-        body = json.dumps(message, separators=(",", ":")).encode("utf-8")
-        proc.stdin.write(f"Content-Length: {len(body)}\r\n\r\n".encode("ascii"))
-        proc.stdin.write(body)
-        proc.stdin.flush()
 
+    def _write_fake_mcp_server(self, tmp_path: Path) -> Path:
+        fake_server = tmp_path / "fake_mcp_server.py"
+        fake_server.write_text(
+            r'''
+import json
+import sys
+import time
+from pathlib import Path
+
+side_effect_path = Path(sys.argv[1])
+
+def read_msg():
+    headers = {}
+    while True:
+        line = sys.stdin.buffer.readline()
+        if not line:
+            return None
+        line = line.decode("ascii").strip()
+        if not line:
+            break
+        key, value = line.split(":", 1)
+        headers[key.lower()] = value.strip()
+    body = sys.stdin.buffer.read(int(headers["content-length"]))
+    return json.loads(body)
+
+def write_msg(value):
+    body = json.dumps(value, separators=(",", ":")).encode("utf-8")
+    sys.stdout.buffer.write(f"Content-Length: {len(body)}\r\n\r\n".encode("ascii"))
+    sys.stdout.buffer.write(body)
+    sys.stdout.buffer.flush()
+
+while True:
+    msg = read_msg()
+    if msg is None:
+        break
+    method = msg.get("method")
+    if method == "initialize":
+        write_msg({
+            "jsonrpc": "2.0",
+            "id": msg.get("id"),
+            "result": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {"tools": {"listChanged": False}},
+                "serverInfo": {"name": "local-fake-mcp-server", "version": "1.0.0"},
+            },
+        })
+        continue
+    if method == "tools/list":
+        write_msg({
+            "jsonrpc": "2.0",
+            "id": msg.get("id"),
+            "result": {
+                "tools": [
+                    {"name": "echo.safe", "description": "Echo safe text", "inputSchema": {"type": "object"}},
+                    {"name": "side.effect", "description": "Writes a side-effect file", "inputSchema": {"type": "object"}},
+                    {"name": "large.response", "description": "Returns a large response", "inputSchema": {"type": "object"}},
+                    {"name": "slow.response", "description": "Sleeps before responding", "inputSchema": {"type": "object"}},
+                ]
+            },
+        })
+        continue
+    if method == "tools/call":
+        params = msg.get("params", {})
+        name = params.get("name", "")
+        args = params.get("arguments", {})
+        if name == "side.effect":
+            side_effect_path.write_text(json.dumps(args, sort_keys=True), encoding="utf-8")
+            text = "side effect occurred"
+        elif name == "large.response":
+            text = "x" * int(args.get("size", 4096))
+        elif name == "slow.response":
+            time.sleep(int(args.get("sleep_ms", 1000)) / 1000)
+            text = "slow response"
+        else:
+            text = f"forwarded:{name}"
+        write_msg({
+            "jsonrpc": "2.0",
+            "id": msg.get("id"),
+            "result": {"content": [{"type": "text", "text": text}]},
+        })
+        continue
+    write_msg({"jsonrpc": "2.0", "id": msg.get("id"), "result": {}})
+'''.strip(),
+            encoding="utf-8",
+        )
+        return fake_server
+
+    def _start_mcp_proxy(
+        self,
+        onus_bin: Path,
+        db_path: Path,
+        session_id: str,
+        fake_server: Path,
+        side_effect_path: Path,
+        *,
+        extra_proxy_args: list[str] | None = None,
+    ) -> subprocess.Popen:
+        args = [
+            str(onus_bin),
+            "mcp-proxy",
+            "--experimental",
+            "--server",
+            sys.executable,
+            "--db-path",
+            str(db_path),
+            "--approval-port",
+            "0",
+            "--session-id",
+            session_id,
+        ]
+        if extra_proxy_args:
+            args.extend(extra_proxy_args)
+        args.extend(["--", str(fake_server), str(side_effect_path)])
+        return subprocess.Popen(
+            args,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=False,
+        )
+
+    @classmethod
+    def _mcp_request(cls, proc: subprocess.Popen, message: dict) -> dict:
+        assert proc.stdin is not None
+        cls._write_mcp_message(proc.stdin, json.dumps(message, separators=(",", ":")).encode("utf-8"))
+        return cls._read_mcp_response(proc)
+
+    @classmethod
+    def _mcp_raw_json(cls, proc: subprocess.Popen, payload: bytes) -> dict:
+        assert proc.stdin is not None
+        cls._write_mcp_message(proc.stdin, payload)
+        return cls._read_mcp_response(proc)
+
+    @staticmethod
+    def _write_mcp_message(stdin, body: bytes) -> None:
+        stdin.write(f"Content-Length: {len(body)}\r\n\r\n".encode("ascii"))
+        stdin.write(body)
+        stdin.flush()
+
+    @staticmethod
+    def _read_mcp_response(proc: subprocess.Popen) -> dict:
+        assert proc.stdout is not None
         headers: dict[str, str] = {}
         while True:
             line = proc.stdout.readline()
@@ -1318,6 +1682,23 @@ while True:
             headers[key.lower()] = value.strip()
         payload = proc.stdout.read(int(headers["content-length"]))
         return json.loads(payload)
+
+    @staticmethod
+    def _stop_process(proc: subprocess.Popen) -> None:
+        if proc.stdin:
+            proc.stdin.close()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
+
+    @staticmethod
+    def _mcp_call(proc: subprocess.Popen, request_id: int, arguments: dict[str, str]) -> dict:
+        return TestMcpProxyRuntime._mcp_request(
+            proc,
+            TestMcpProxyRuntime._mcp_tool_message(request_id, "db.query", arguments),
+        )
 
     @staticmethod
     def _free_port() -> int:

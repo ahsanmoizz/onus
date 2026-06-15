@@ -146,6 +146,35 @@ fn run_heuristics(request: &ActionRequest) -> Option<HeuristicResult> {
         }
     }
 
+    if request.action.action_type == crate::ActionType::MCP {
+        let lower = payload_str.to_ascii_lowercase();
+        let classified = crate::security::classify_payload(&request.action.payload);
+        if classified
+            .classification
+            .contains("\"contains_sensitive\":true")
+        {
+            return Some(HeuristicResult {
+                id: "SECRET_001".into(),
+                name: "hardcoded-secret".into(),
+                correction: "Sensitive MCP tool arguments detected. Use references or approved secret handles instead of raw credential material.".into(),
+                decision: Verdict::Block,
+            });
+        }
+        if lower.contains("rm -rf")
+            || lower.contains("drop table")
+            || lower.contains("delete from")
+            || lower.contains("terraform destroy")
+            || lower.contains("kubectl delete")
+        {
+            return Some(HeuristicResult {
+                id: "MCP_SAFETY_001".into(),
+                name: "dangerous-mcp-tool-arguments".into(),
+                correction: "MCP tool arguments contain destructive instructions. Narrow the request or use a safer, approval-backed operation.".into(),
+                decision: Verdict::Block,
+            });
+        }
+    }
+
     None
 }
 

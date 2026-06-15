@@ -46,6 +46,14 @@ pub struct McpProxyArgs {
     /// creates a fresh session ID and contract enforcement follows missing-contract policy.
     #[arg(long)]
     pub session_id: Option<String>,
+
+    /// Maximum time to wait for the upstream MCP server response.
+    #[arg(long, default_value_t = 5000)]
+    pub response_timeout_ms: u64,
+
+    /// Maximum upstream MCP response size in bytes.
+    #[arg(long, default_value_t = 1048576)]
+    pub max_response_bytes: usize,
 }
 
 pub fn run(args: McpProxyArgs) -> anyhow::Result<()> {
@@ -64,5 +72,7 @@ pub fn run(args: McpProxyArgs) -> anyhow::Result<()> {
         args.db_path,
         Some(args.approval_port),
         args.session_id,
+        args.response_timeout_ms,
+        args.max_response_bytes,
     )
 }
