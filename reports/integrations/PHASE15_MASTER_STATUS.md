@@ -121,7 +121,7 @@ Classification terms:
 | 13 | Continue Agent for VS Code | BLOCKED in Phase 15. Continue extension/runtime is not detected; generic VS Code evidence is not reused. | Future work requires Continue-specific runtime configuration or Onus-owned MCP/L3 route. | Continue extension not detected. | BLOCKED. |
 | 14 | Continue Agent for JetBrains | BLOCKED in Phase 15. JetBrains and Continue Agent runtimes are unavailable locally. | Future proof requires JetBrains + Continue runtime and a documented control surface. | JetBrains/Continue runtime not detected. | BLOCKED. |
 | 15 | JetBrains Junie CLI | PROTOCOL-ONLY in Phase 15. Official docs show Junie CLI MCP configuration; local Junie runtime/auth are unavailable. | Native runtime proof requires installed, authenticated Junie CLI. | Not installed locally. | PROTOCOL-ONLY via MCP; BLOCKED for native runtime proof. |
-| 16 | JetBrains Junie IDE Agent | MISSING. Official docs show IDE agent and MCP settings. | Add JetBrains MCP configuration report only with IDE runtime. | JetBrains runtime not detected. | PROTOCOL-ONLY or BLOCKED. |
+| 16 | JetBrains Junie IDE Agent | BLOCKED in Phase 15. JetBrains IDE/Junie Agent runtime is unavailable; Junie CLI evidence is not reused. | Future proof requires JetBrains IDE runtime or routed MCP/L3 evidence. | JetBrains runtime not detected. | BLOCKED. |
 | 17 | Aider | MISSING as a product adapter. Could be wrapped by L3 workspace or shell policy, but direct file edits outside Onus can bypass L1 hooks. | Add Aider wrapper/report; prefer L3 workspace for meaningful containment. | Not installed locally. | BLOCKED locally; L3 wrapper target on Linux. |
 | 18 | OpenAI Agents SDK | MISSING as a framework adapter. Python Guardian can wrap tool functions manually. | Add a small SDK tool wrapper only if the official SDK can be installed/tested; keep provider credential claims separate. | No credentials assumed. Python available. | L2 for wrapped tools; no model-runtime claim without credentials. |
 | 19 | LangChain Agents / LangGraph | MISSING as a framework adapter. | Add middleware/tool wrapper around Onus evaluator; test with local no-model tool calls or fixtures. | Python available; packages not confirmed installed. | L2 for wrapped tools if package is available; otherwise BLOCKED. |
@@ -144,11 +144,11 @@ Classification terms:
 | ---: | --- |
 | 2 | Surface adapters newly verified in Phase 15 |
 | 7 | Surface adapters added as protocol-only in Phase 15 |
-| 6 | Surface adapters blocked with evidence in Phase 15 |
-| 14 | Surface adapters merged from integration branches |
-| 5 | Surface adapters remaining |
+| 7 | Surface adapters blocked with evidence in Phase 15 |
+| 15 | Surface adapters merged from integration branches |
+| 4 | Surface adapters remaining |
 
-Next required branch: `integration/jetbrains-junie-ide-agent`.
+Next required branch: `integration/aider`.
 
-Next exact action: inspect JetBrains Junie IDE Agent separately from Junie CLI;
-do not claim proof without JetBrains IDE runtime.
+Next exact action: inspect Aider availability and decide between L3 wrapper,
+shell wrapper, or blocked classification.
