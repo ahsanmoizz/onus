@@ -124,7 +124,7 @@ Classification terms:
 | 16 | JetBrains Junie IDE Agent | BLOCKED in Phase 15. JetBrains IDE/Junie Agent runtime is unavailable; Junie CLI evidence is not reused. | Future proof requires JetBrains IDE runtime or routed MCP/L3 evidence. | JetBrains runtime not detected. | BLOCKED. |
 | 17 | Aider | BLOCKED in Phase 15. Aider is not installed and model credentials are unavailable; future proof should prefer L3 workspace execution. | Future work requires installed Aider plus verified L3 or Onus-owned execution route. | Not installed locally. | BLOCKED. |
 | 18 | OpenAI Agents SDK | BLOCKED → IMPLEMENTED AND RUNTIME VERIFIED (Phase 15B) | `integrations/openai-agents-sdk/README.md`, `onus/bindings/python/tests/test_openai_agents_sdk.py` |
-| 19 | LangChain Agents / LangGraph | BLOCKED in Phase 15. `langchain` and `langgraph` packages are not installed; model credentials are absent. | Future work requires installed packages and a runtime-tested Onus middleware/tool-wrapper adapter. | Python available; packages absent; credentials absent. | BLOCKED. |
+| 19 | LangChain Agents / LangGraph | BLOCKED → IMPLEMENTED AND RUNTIME VERIFIED (Phase 15B) | `integrations/langchain-langgraph/README.md`, `onus/bindings/python/tests/test_langchain_langgraph.py` |
 | 20 | CrewAI | BLOCKED in Phase 15. `crewai` package is not installed; model credentials are absent. | Future work requires installed CrewAI and a runtime-tested Onus tool/flow wrapper. | Package absent; credentials absent. | BLOCKED. |
 
 ## Security Boundaries
@@ -152,12 +152,12 @@ Classification terms:
 
 | Count | Status |
 | ---: | --- |
-| 1 | Adapter upgraded to RUNTIME VERIFIED (OpenAI Agents SDK) |
-| 1 | Test file added (`onus/bindings/python/tests/test_openai_agents_sdk.py`) |
-| 2 | Surfaces remaining in priority list (Claude Code CLI, VS Code Agents blocked by auth/install) |
-| 5 | Surfaces not testable (Windsurf, Cline, Codex CLI, Gemini CLI not installed; LangChain not installed) |
+| 2 | Adapters upgraded to RUNTIME VERIFIED (OpenAI Agents SDK, LangChain/LangGraph) |
+| 2 | Test files added (`test_openai_agents_sdk.py`, `test_langchain_langgraph.py`) |
+| 2 | Surfaces completed in Phase 15B (OpenAI Agents SDK, LangChain/LangGraph) |
+| 4 | Surfaces remaining (Claude Code CLI, VS Code Agents, Windsurf, Cline, Codex CLI, Gemini CLI — blocked by auth or not installed) |
 
-Next exact action: install LangChain/LangGraph packages and runtime-verify the LangChain surface.
+Next exact action: runtime-verify VS Code Agents extension by creating .vsix and testing extension activation with Onus hook delivery. Requires `vsce` packaging and VS Code extension directory on PATH.
 
 Next required branch: none.
 
