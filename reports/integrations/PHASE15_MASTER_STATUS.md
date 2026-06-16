@@ -118,7 +118,7 @@ Classification terms:
 | 10 | OpenAI Codex CLI | PROTOCOL-ONLY in Phase 15 with local runtime blocker. Official docs expose CLI and MCP; local Windows app binary exists but direct version probe failed with access denied. | Native runtime proof requires executable access. MCP support requires Codex configured to launch `onus mcp-proxy`. | Windows app binary found; access denied on version probe. | PROTOCOL-ONLY via MCP; BLOCKED for native runtime proof. |
 | 11 | Gemini CLI | PROTOCOL-ONLY in Phase 15. Official CLI supports MCP; repo now includes a bounded Onus MCP routing template. | Native runtime testing remains blocked until Gemini CLI is installed. | Not installed locally. | PROTOCOL-ONLY via MCP; BLOCKED for native runtime proof. |
 | 12 | Continue CLI | PROTOCOL-ONLY in Phase 15. Continue CLI is unavailable locally; future routes are tool permissions/executor, MCP, or L3. | Native runtime testing remains blocked until Continue CLI is installed. | Not installed locally. | PROTOCOL-ONLY; BLOCKED for native runtime proof. |
-| 13 | Continue Agent for VS Code | MISSING as a product-specific adapter. | Use extension configuration or MCP if available; distinguish from generic VS Code extension. | Continue extension not detected. | PROTOCOL-ONLY or BLOCKED. |
+| 13 | Continue Agent for VS Code | BLOCKED in Phase 15. Continue extension/runtime is not detected; generic VS Code evidence is not reused. | Future work requires Continue-specific runtime configuration or Onus-owned MCP/L3 route. | Continue extension not detected. | BLOCKED. |
 | 14 | Continue Agent for JetBrains | MISSING. | Use JetBrains/Continue configuration only with installed runtime. | JetBrains/Continue runtime not detected. | BLOCKED. |
 | 15 | JetBrains Junie CLI | MISSING. Official docs show Junie CLI and MCP configuration. | Add MCP route or CLI wrapper only with installed, authenticated Junie. | Not installed locally. | PROTOCOL-ONLY or BLOCKED. |
 | 16 | JetBrains Junie IDE Agent | MISSING. Official docs show IDE agent and MCP settings. | Add JetBrains MCP configuration report only with IDE runtime. | JetBrains runtime not detected. | PROTOCOL-ONLY or BLOCKED. |
@@ -144,11 +144,11 @@ Classification terms:
 | ---: | --- |
 | 2 | Surface adapters newly verified in Phase 15 |
 | 6 | Surface adapters added as protocol-only in Phase 15 |
-| 4 | Surface adapters blocked with evidence in Phase 15 |
-| 11 | Surface adapters merged from integration branches |
-| 8 | Surface adapters remaining |
+| 5 | Surface adapters blocked with evidence in Phase 15 |
+| 12 | Surface adapters merged from integration branches |
+| 7 | Surface adapters remaining |
 
-Next required branch: `integration/continue-agent-vscode`.
+Next required branch: `integration/continue-agent-jetbrains`.
 
-Next exact action: inspect Continue Agent for VS Code separately from generic VS
-Code checks; do not claim extension proof without Continue runtime.
+Next exact action: inspect Continue Agent for JetBrains separately; do not claim
+proof without JetBrains and Continue runtimes.
