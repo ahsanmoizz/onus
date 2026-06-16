@@ -124,7 +124,7 @@ Classification terms:
 | 16 | JetBrains Junie IDE Agent | BLOCKED in Phase 15. JetBrains IDE/Junie Agent runtime is unavailable; Junie CLI evidence is not reused. | Future proof requires JetBrains IDE runtime or routed MCP/L3 evidence. | JetBrains runtime not detected. | BLOCKED. |
 | 17 | Aider | BLOCKED in Phase 15. Aider is not installed and model credentials are unavailable; future proof should prefer L3 workspace execution. | Future work requires installed Aider plus verified L3 or Onus-owned execution route. | Not installed locally. | BLOCKED. |
 | 18 | OpenAI Agents SDK | BLOCKED in Phase 15. `openai-agents` package is not installed and `OPENAI_API_KEY` is absent. | Future work requires installed SDK, credentials, and a real Onus-owned tool-wrapper test. | Python available; SDK package absent; credentials absent. | BLOCKED. |
-| 19 | LangChain Agents / LangGraph | MISSING as a framework adapter. | Add middleware/tool wrapper around Onus evaluator; test with local no-model tool calls or fixtures. | Python available; packages not confirmed installed. | L2 for wrapped tools if package is available; otherwise BLOCKED. |
+| 19 | LangChain Agents / LangGraph | BLOCKED in Phase 15. `langchain` and `langgraph` packages are not installed; model credentials are absent. | Future work requires installed packages and a runtime-tested Onus middleware/tool-wrapper adapter. | Python available; packages absent; credentials absent. | BLOCKED. |
 | 20 | CrewAI | MISSING as a framework adapter. | Add tool/flow wrapper if package install/runtime is available; test without live model if possible. | Package not confirmed installed. | L2 for wrapped tools if package is available; otherwise BLOCKED. |
 
 ## Security Boundaries
@@ -144,11 +144,11 @@ Classification terms:
 | ---: | --- |
 | 2 | Surface adapters newly verified in Phase 15 |
 | 7 | Surface adapters added as protocol-only in Phase 15 |
-| 9 | Surface adapters blocked with evidence in Phase 15 |
-| 17 | Surface adapters merged from integration branches |
-| 2 | Surface adapters remaining |
+| 10 | Surface adapters blocked with evidence in Phase 15 |
+| 18 | Surface adapters merged from integration branches |
+| 1 | Surface adapters remaining |
 
-Next required branch: `integration/langchain-langgraph`.
+Next required branch: `integration/crewai`.
 
-Next exact action: inspect LangChain/LangGraph package availability and add a
-real Onus middleware/tool-wrapper only if it can be tested locally.
+Next exact action: inspect CrewAI package availability and add a real Onus
+tool/flow wrapper only if it can be tested locally.
