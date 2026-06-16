@@ -1,0 +1,21 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# Claude Code local state
+.claude/
+
+# Local runtime artifacts
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.log
+
+# Onus temporary runtime state
+.onus/
+reality_demo_workspace/
