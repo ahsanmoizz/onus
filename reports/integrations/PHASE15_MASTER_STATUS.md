@@ -112,7 +112,7 @@ Classification terms:
 | 4 | Visual Studio Code Agents | VERIFIED WITH LIMITATIONS in Phase 15. VS Code extension exists, VS Code `1.124.2` is installed, and extension JavaScript syntax passes. | Live VS Code agent/Copilot tool-call interception remains unverified. Package JSON has a UTF-8 BOM caveat. | VS Code `1.124.2` installed. | VERIFIED WITH LIMITATIONS for extension checks; L1 BEST-EFFORT. |
 | 5 | GitHub Copilot SDK | BLOCKED in Phase 15. `@github/copilot-sdk@1.0.1` is discoverable, but no authenticated Copilot SDK runtime or GitHub CLI is available locally. | Future work requires an Onus-owned SDK/tool-executor wrapper and authenticated runtime tests. | SDK registry reachable; `gh` not installed; credentials unavailable. | BLOCKED. |
 | 6 | Google Antigravity | PROTOCOL-ONLY in Phase 15. Official docs expose MCP; repo now includes a bounded Onus MCP routing template. | Native runtime testing remains blocked until Antigravity is installed. | Not installed locally. | PROTOCOL-ONLY via MCP; BLOCKED for native runtime proof. |
-| 7 | Cursor CLI | MISSING. No Cursor runtime found. | Determine current official CLI control surface; use MCP or L3 wrapper if no native hook is available. | Not installed locally. | BLOCKED unless runtime installed. |
+| 7 | Cursor CLI | BLOCKED in Phase 15. No local Cursor CLI runtime is available, and VS Code evidence is not reused as Cursor proof. | Future work requires installed Cursor CLI plus native hook/MCP/L3 route verification. | Not installed locally. | BLOCKED. |
 | 8 | Cursor Agent in Cursor IDE | MISSING/PARTIAL. VS Code extension may be structurally compatible, but Cursor agent tool interception is not proven. | Do not reuse VS Code evidence as Cursor proof. Prefer MCP if Cursor supports it, otherwise L1 BEST-EFFORT report. | Cursor not installed locally. | BLOCKED or PROTOCOL-ONLY. |
 | 9 | Cursor Background Agents | MISSING. Cloud/background feature requires Cursor service environment. | Document direct limits; only L4 authority or repository policy can control privileged side effects. | Credentials/service unavailable. | BLOCKED. |
 | 10 | OpenAI Codex CLI | MISSING adapter. Codex binary exists as Windows app but direct execution probe failed. Official docs expose CLI and MCP. | Add MCP/L3 route report; test only if CLI executable can be invoked. | Windows app binary found; access denied on version probe. | BLOCKED locally; PROTOCOL-ONLY via MCP where configurable. |
@@ -144,11 +144,11 @@ Classification terms:
 | ---: | --- |
 | 2 | Surface adapters newly verified in Phase 15 |
 | 3 | Surface adapters added as protocol-only in Phase 15 |
-| 1 | Surface adapters blocked with evidence in Phase 15 |
-| 5 | Surface adapters merged from integration branches |
-| 14 | Surface adapters remaining |
+| 2 | Surface adapters blocked with evidence in Phase 15 |
+| 6 | Surface adapters merged from integration branches |
+| 13 | Surface adapters remaining |
 
-Next required branch: `integration/cursor-cli`.
+Next required branch: `integration/cursor-agent-ide`.
 
-Next exact action: inspect Cursor CLI availability and official control
-surfaces; do not reuse VS Code evidence as Cursor proof.
+Next exact action: inspect Cursor IDE agent support separately from Cursor CLI
+and VS Code; do not claim Cursor IDE proof without Cursor runtime.
