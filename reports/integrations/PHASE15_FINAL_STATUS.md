@@ -15,14 +15,21 @@ created integration templates and evidence reports, and it refused to claim
 runtime support where the local runtime, package, credentials, or service access
 was unavailable.
 
+## Phase 15B Update
+
+Phase 15B performed runtime verification on priority surfaces where the required
+software was available. One surface was upgraded from `BLOCKED` to
+`IMPLEMENTED AND RUNTIME VERIFIED` with 10 passing runtime tests.
+
 ## Counts
 
 | Category | Count |
 | --- | ---: |
 | Surfaces processed | 20 |
 | Verified with limitations | 2 |
+| IMPLEMENTED AND RUNTIME VERIFIED (Phase 15B) | 1 |
 | Protocol-only | 7 |
-| Blocked with evidence | 11 |
+| Blocked with evidence | 10 |
 | Remaining surfaces | 0 |
 
 ## Processed Surfaces
@@ -46,7 +53,7 @@ was unavailable.
 | 15 | JetBrains Junie CLI | PROTOCOL_ONLY |
 | 16 | JetBrains Junie IDE Agent | BLOCKED |
 | 17 | Aider | BLOCKED |
-| 18 | OpenAI Agents SDK | BLOCKED |
+| 18 | OpenAI Agents SDK | BLOCKED (Phase 15) / IMPLEMENTED AND RUNTIME VERIFIED (Phase 15B) |
 | 19 | LangChain Agents / LangGraph | BLOCKED |
 | 20 | CrewAI | BLOCKED |
 
@@ -72,6 +79,42 @@ cargo test claude_hook -- --nocapture
 ```text
 python -m pytest -q -rs onus\bindings\python\tests\test_onus.py -k "claude_hook or mcp"
 8 passed, 51 deselected
+```
+
+### Phase 15B Runtime Verification
+
+```text
+$ pip install openai-agents==0.17.5 openai==2.41.1
+$ python -m pytest onus/bindings/python/tests/test_openai_agents_sdk.py -v
+collected 10 items
+
+test_openai_agents_sdk.py::TestOpenAIAgentsSDKAdapter::test_adapter_ready PASSED
+test_openai_agents_sdk.py::TestOpenAIAgentsSDKAdapter::test_tool_interception_setup PASSED
+test_openai_agents_sdk.py::TestOpenAIAgentsSDKAdapter::test_tool_unknown_action PASSED
+test_openai_agents_sdk.py::TestOpenAIAgentsSDKAdapter::test_blocked_command PASSED
+test_openai_agents_sdk.py::TestOpenAIAgentsSDKAdapter::test_blocked_command_produces_correction PASSED
+test_openai_agents_sdk.py::TestOpenAIAgentsSDKAdapter::test_does_not_block_innocent_command PASSED
+test_openai_agents_sdk.py::TestOpenAIAgentsSDKAdapter::test_sdk_function_tool_normalisation PASSED
+test_openai_agents_sdk.py::TestOpenAIAgentsSDKAdapter::test_sdk_function_tool_correct_name PASSED
+test_openai_agents_sdk.py::TestOpenAIAgentsSDKAdapter::test_sdk_needs_approval_interop PASSED
+test_openai_agents_sdk.py::TestOpenAIAgentsSDKAdapter::test_interception_contract_complete PASSED
+
+10 passed in 4.42s
+```
+
+```text
+python -m pytest onus/bindings/python/tests/ -q
+67 passed, 2 skipped
+```
+
+```text
+cargo test
+75 passed; 0 failed
+```
+
+```text
+python tools/spec_lock/verify_spec_lock.py
+SPEC LOCK VERIFICATION PASSED
 ```
 
 ## Branches And Commits

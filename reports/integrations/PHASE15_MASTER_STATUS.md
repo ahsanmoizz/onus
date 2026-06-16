@@ -123,7 +123,7 @@ Classification terms:
 | 15 | JetBrains Junie CLI | PROTOCOL-ONLY in Phase 15. Official docs show Junie CLI MCP configuration; local Junie runtime/auth are unavailable. | Native runtime proof requires installed, authenticated Junie CLI. | Not installed locally. | PROTOCOL-ONLY via MCP; BLOCKED for native runtime proof. |
 | 16 | JetBrains Junie IDE Agent | BLOCKED in Phase 15. JetBrains IDE/Junie Agent runtime is unavailable; Junie CLI evidence is not reused. | Future proof requires JetBrains IDE runtime or routed MCP/L3 evidence. | JetBrains runtime not detected. | BLOCKED. |
 | 17 | Aider | BLOCKED in Phase 15. Aider is not installed and model credentials are unavailable; future proof should prefer L3 workspace execution. | Future work requires installed Aider plus verified L3 or Onus-owned execution route. | Not installed locally. | BLOCKED. |
-| 18 | OpenAI Agents SDK | BLOCKED in Phase 15. `openai-agents` package is not installed and `OPENAI_API_KEY` is absent. | Future work requires installed SDK, credentials, and a real Onus-owned tool-wrapper test. | Python available; SDK package absent; credentials absent. | BLOCKED. |
+| 18 | OpenAI Agents SDK | BLOCKED → IMPLEMENTED AND RUNTIME VERIFIED (Phase 15B) | `integrations/openai-agents-sdk/README.md`, `onus/bindings/python/tests/test_openai_agents_sdk.py` |
 | 19 | LangChain Agents / LangGraph | BLOCKED in Phase 15. `langchain` and `langgraph` packages are not installed; model credentials are absent. | Future work requires installed packages and a runtime-tested Onus middleware/tool-wrapper adapter. | Python available; packages absent; credentials absent. | BLOCKED. |
 | 20 | CrewAI | BLOCKED in Phase 15. `crewai` package is not installed; model credentials are absent. | Future work requires installed CrewAI and a runtime-tested Onus tool/flow wrapper. | Package absent; credentials absent. | BLOCKED. |
 
@@ -147,6 +147,17 @@ Classification terms:
 | 11 | Surface adapters blocked with evidence in Phase 15 |
 | 19 | Surface adapters merged from integration branches |
 | 0 | Surface adapters remaining |
+
+## Phase 15B Runtime Verification Status
+
+| Count | Status |
+| ---: | --- |
+| 1 | Adapter upgraded to RUNTIME VERIFIED (OpenAI Agents SDK) |
+| 1 | Test file added (`onus/bindings/python/tests/test_openai_agents_sdk.py`) |
+| 2 | Surfaces remaining in priority list (Claude Code CLI, VS Code Agents blocked by auth/install) |
+| 5 | Surfaces not testable (Windsurf, Cline, Codex CLI, Gemini CLI not installed; LangChain not installed) |
+
+Next exact action: install LangChain/LangGraph packages and runtime-verify the LangChain surface.
 
 Next required branch: none.
 
