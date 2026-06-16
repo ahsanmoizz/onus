@@ -110,7 +110,7 @@ Classification terms:
 | 2 | Windsurf Editor / Cascade | PROTOCOL-ONLY in Phase 15. No Windsurf-specific native runtime adapter exists. Official docs expose MCP and hooks; this repo now provides a bounded MCP routing template. | Native hook/runtime testing remains blocked until Windsurf is installed. | Not installed locally. | PROTOCOL-ONLY via MCP; BLOCKED for native runtime proof. |
 | 3 | Cline | PROTOCOL-ONLY in Phase 15. Cline can route MCP server traffic through `onus mcp-proxy`, but no native Cline runtime adapter is proven. | Native runtime testing remains blocked until Cline is installed. | Not installed locally. | PROTOCOL-ONLY via MCP; no native proof. |
 | 4 | Visual Studio Code Agents | VERIFIED WITH LIMITATIONS in Phase 15. VS Code extension exists, VS Code `1.124.2` is installed, and extension JavaScript syntax passes. | Live VS Code agent/Copilot tool-call interception remains unverified. Package JSON has a UTF-8 BOM caveat. | VS Code `1.124.2` installed. | VERIFIED WITH LIMITATIONS for extension checks; L1 BEST-EFFORT. |
-| 5 | GitHub Copilot SDK | MISSING. No SDK adapter found. | Build a narrow SDK/tool executor adapter only if official SDK can be installed and tested locally. | SDK not installed; GitHub cloud credentials not available. | PROTOCOL-ONLY/BLOCKED unless local SDK fixture can run without credentials. |
+| 5 | GitHub Copilot SDK | BLOCKED in Phase 15. `@github/copilot-sdk@1.0.1` is discoverable, but no authenticated Copilot SDK runtime or GitHub CLI is available locally. | Future work requires an Onus-owned SDK/tool-executor wrapper and authenticated runtime tests. | SDK registry reachable; `gh` not installed; credentials unavailable. | BLOCKED. |
 | 6 | Google Antigravity | MISSING. Official docs expose MCP configuration. | Add MCP routing instructions/report; no product-runtime claim without installed Antigravity. | Not installed locally. | PROTOCOL-ONLY or BLOCKED. |
 | 7 | Cursor CLI | MISSING. No Cursor runtime found. | Determine current official CLI control surface; use MCP or L3 wrapper if no native hook is available. | Not installed locally. | BLOCKED unless runtime installed. |
 | 8 | Cursor Agent in Cursor IDE | MISSING/PARTIAL. VS Code extension may be structurally compatible, but Cursor agent tool interception is not proven. | Do not reuse VS Code evidence as Cursor proof. Prefer MCP if Cursor supports it, otherwise L1 BEST-EFFORT report. | Cursor not installed locally. | BLOCKED or PROTOCOL-ONLY. |
@@ -144,10 +144,11 @@ Classification terms:
 | ---: | --- |
 | 2 | Surface adapters newly verified in Phase 15 |
 | 2 | Surface adapters added as protocol-only in Phase 15 |
-| 3 | Surface adapters merged from integration branches |
-| 16 | Surface adapters remaining |
+| 1 | Surface adapters blocked with evidence in Phase 15 |
+| 4 | Surface adapters merged from integration branches |
+| 15 | Surface adapters remaining |
 
-Next required branch: `integration/github-copilot-sdk`.
+Next required branch: `integration/google-antigravity`.
 
-Next exact action: inspect GitHub Copilot SDK availability and add only a
-bounded SDK/tool-executor route if it can be installed and tested locally.
+Next exact action: inspect Google Antigravity MCP/runtime availability and add
+only bounded protocol support if no local runtime exists.
