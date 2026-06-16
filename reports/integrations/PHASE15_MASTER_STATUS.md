@@ -117,7 +117,7 @@ Classification terms:
 | 9 | Cursor Background Agents | BLOCKED in Phase 15. This is a cloud/service surface and no Cursor cloud runtime or credentials are available locally. | Future work requires service-native hook/policy evidence or L4 authority for privileged side effects. | Credentials/service unavailable. | BLOCKED. |
 | 10 | OpenAI Codex CLI | PROTOCOL-ONLY in Phase 15 with local runtime blocker. Official docs expose CLI and MCP; local Windows app binary exists but direct version probe failed with access denied. | Native runtime proof requires executable access. MCP support requires Codex configured to launch `onus mcp-proxy`. | Windows app binary found; access denied on version probe. | PROTOCOL-ONLY via MCP; BLOCKED for native runtime proof. |
 | 11 | Gemini CLI | PROTOCOL-ONLY in Phase 15. Official CLI supports MCP; repo now includes a bounded Onus MCP routing template. | Native runtime testing remains blocked until Gemini CLI is installed. | Not installed locally. | PROTOCOL-ONLY via MCP; BLOCKED for native runtime proof. |
-| 12 | Continue CLI | MISSING. Continue supports CLI/TUI and tool permissions; MCP-compatible routing may be possible. | Add config/report only after installing or detecting Continue. | Not installed locally. | PROTOCOL-ONLY or BLOCKED. |
+| 12 | Continue CLI | PROTOCOL-ONLY in Phase 15. Continue CLI is unavailable locally; future routes are tool permissions/executor, MCP, or L3. | Native runtime testing remains blocked until Continue CLI is installed. | Not installed locally. | PROTOCOL-ONLY; BLOCKED for native runtime proof. |
 | 13 | Continue Agent for VS Code | MISSING as a product-specific adapter. | Use extension configuration or MCP if available; distinguish from generic VS Code extension. | Continue extension not detected. | PROTOCOL-ONLY or BLOCKED. |
 | 14 | Continue Agent for JetBrains | MISSING. | Use JetBrains/Continue configuration only with installed runtime. | JetBrains/Continue runtime not detected. | BLOCKED. |
 | 15 | JetBrains Junie CLI | MISSING. Official docs show Junie CLI and MCP configuration. | Add MCP route or CLI wrapper only with installed, authenticated Junie. | Not installed locally. | PROTOCOL-ONLY or BLOCKED. |
@@ -143,12 +143,12 @@ Classification terms:
 | Count | Status |
 | ---: | --- |
 | 2 | Surface adapters newly verified in Phase 15 |
-| 5 | Surface adapters added as protocol-only in Phase 15 |
+| 6 | Surface adapters added as protocol-only in Phase 15 |
 | 4 | Surface adapters blocked with evidence in Phase 15 |
-| 10 | Surface adapters merged from integration branches |
-| 9 | Surface adapters remaining |
+| 11 | Surface adapters merged from integration branches |
+| 8 | Surface adapters remaining |
 
-Next required branch: `integration/continue-cli`.
+Next required branch: `integration/continue-agent-vscode`.
 
-Next exact action: inspect Continue CLI availability and official tool/MCP
-control surfaces; classify without claiming untested runtime behavior.
+Next exact action: inspect Continue Agent for VS Code separately from generic VS
+Code checks; do not claim extension proof without Continue runtime.
