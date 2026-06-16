@@ -111,7 +111,7 @@ Classification terms:
 | 3 | Cline | PROTOCOL-ONLY in Phase 15. Cline can route MCP server traffic through `onus mcp-proxy`, but no native Cline runtime adapter is proven. | Native runtime testing remains blocked until Cline is installed. | Not installed locally. | PROTOCOL-ONLY via MCP; no native proof. |
 | 4 | Visual Studio Code Agents | VERIFIED WITH LIMITATIONS in Phase 15. VS Code extension exists, VS Code `1.124.2` is installed, and extension JavaScript syntax passes. | Live VS Code agent/Copilot tool-call interception remains unverified. Package JSON has a UTF-8 BOM caveat. | VS Code `1.124.2` installed. | VERIFIED WITH LIMITATIONS for extension checks; L1 BEST-EFFORT. |
 | 5 | GitHub Copilot SDK | BLOCKED in Phase 15. `@github/copilot-sdk@1.0.1` is discoverable, but no authenticated Copilot SDK runtime or GitHub CLI is available locally. | Future work requires an Onus-owned SDK/tool-executor wrapper and authenticated runtime tests. | SDK registry reachable; `gh` not installed; credentials unavailable. | BLOCKED. |
-| 6 | Google Antigravity | MISSING. Official docs expose MCP configuration. | Add MCP routing instructions/report; no product-runtime claim without installed Antigravity. | Not installed locally. | PROTOCOL-ONLY or BLOCKED. |
+| 6 | Google Antigravity | PROTOCOL-ONLY in Phase 15. Official docs expose MCP; repo now includes a bounded Onus MCP routing template. | Native runtime testing remains blocked until Antigravity is installed. | Not installed locally. | PROTOCOL-ONLY via MCP; BLOCKED for native runtime proof. |
 | 7 | Cursor CLI | MISSING. No Cursor runtime found. | Determine current official CLI control surface; use MCP or L3 wrapper if no native hook is available. | Not installed locally. | BLOCKED unless runtime installed. |
 | 8 | Cursor Agent in Cursor IDE | MISSING/PARTIAL. VS Code extension may be structurally compatible, but Cursor agent tool interception is not proven. | Do not reuse VS Code evidence as Cursor proof. Prefer MCP if Cursor supports it, otherwise L1 BEST-EFFORT report. | Cursor not installed locally. | BLOCKED or PROTOCOL-ONLY. |
 | 9 | Cursor Background Agents | MISSING. Cloud/background feature requires Cursor service environment. | Document direct limits; only L4 authority or repository policy can control privileged side effects. | Credentials/service unavailable. | BLOCKED. |
@@ -143,12 +143,12 @@ Classification terms:
 | Count | Status |
 | ---: | --- |
 | 2 | Surface adapters newly verified in Phase 15 |
-| 2 | Surface adapters added as protocol-only in Phase 15 |
+| 3 | Surface adapters added as protocol-only in Phase 15 |
 | 1 | Surface adapters blocked with evidence in Phase 15 |
-| 4 | Surface adapters merged from integration branches |
-| 15 | Surface adapters remaining |
+| 5 | Surface adapters merged from integration branches |
+| 14 | Surface adapters remaining |
 
-Next required branch: `integration/google-antigravity`.
+Next required branch: `integration/cursor-cli`.
 
-Next exact action: inspect Google Antigravity MCP/runtime availability and add
-only bounded protocol support if no local runtime exists.
+Next exact action: inspect Cursor CLI availability and official control
+surfaces; do not reuse VS Code evidence as Cursor proof.
