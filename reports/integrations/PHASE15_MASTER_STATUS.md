@@ -108,7 +108,7 @@ Classification terms:
 | ---: | --- | --- | --- | --- | --- |
 | 1 | Claude Code CLI | VERIFIED WITH LIMITATIONS in Phase 15. `onus claude-hook` exists and is explicitly L1 BEST-EFFORT. `@anthropic-ai/claude-code@2.1.177` was reachable, but unauthenticated. | No code change required for this surface. Keep BEST-EFFORT label and do not claim live authenticated agent-loop proof. | Package probe passed; authenticated Claude Code is not available. | VERIFIED WITH LIMITATIONS for hook process; BLOCKED for authenticated live agent loop. |
 | 2 | Windsurf Editor / Cascade | PROTOCOL-ONLY in Phase 15. No Windsurf-specific native runtime adapter exists. Official docs expose MCP and hooks; this repo now provides a bounded MCP routing template. | Native hook/runtime testing remains blocked until Windsurf is installed. | Not installed locally. | PROTOCOL-ONLY via MCP; BLOCKED for native runtime proof. |
-| 3 | Cline | MISSING as a product adapter. MCP gateway can be used if Cline is configured to route MCP through Onus. | Add Cline MCP configuration docs/scripts and runtime harness only if Cline is available. | Not installed locally. | PROTOCOL-ONLY via MCP; no native proof. |
+| 3 | Cline | PROTOCOL-ONLY in Phase 15. Cline can route MCP server traffic through `onus mcp-proxy`, but no native Cline runtime adapter is proven. | Native runtime testing remains blocked until Cline is installed. | Not installed locally. | PROTOCOL-ONLY via MCP; no native proof. |
 | 4 | Visual Studio Code Agents | PARTIAL. VS Code extension exists and VS Code is installed. | Validate extension package shape and add an integration report. Native VS Code agent internals may remain BEST-EFFORT. | VS Code `1.124.2` installed. | VERIFIED WITH LIMITATIONS for extension/runtime checks if smokeable; L1 BEST-EFFORT. |
 | 5 | GitHub Copilot SDK | MISSING. No SDK adapter found. | Build a narrow SDK/tool executor adapter only if official SDK can be installed and tested locally. | SDK not installed; GitHub cloud credentials not available. | PROTOCOL-ONLY/BLOCKED unless local SDK fixture can run without credentials. |
 | 6 | Google Antigravity | MISSING. Official docs expose MCP configuration. | Add MCP routing instructions/report; no product-runtime claim without installed Antigravity. | Not installed locally. | PROTOCOL-ONLY or BLOCKED. |
@@ -143,11 +143,12 @@ Classification terms:
 | Count | Status |
 | ---: | --- |
 | 1 | Surface adapters newly verified in Phase 15 |
-| 1 | Surface adapters added as protocol-only in Phase 15 |
-| 1 | Surface adapters merged from integration branches |
-| 18 | Surface adapters remaining |
+| 2 | Surface adapters added as protocol-only in Phase 15 |
+| 2 | Surface adapters merged from integration branches |
+| 17 | Surface adapters remaining |
 
-Next required branch: `integration/cline`.
+Next required branch: `integration/visual-studio-code-agents`.
 
-Next exact action: inspect Cline MCP configuration, add bounded Onus MCP routing
-support only if runtime evidence can be honestly classified.
+Next exact action: inspect the existing VS Code extension against VS Code agent
+claims, run safe local VS Code/package checks, and keep all claims L1
+BEST-EFFORT unless pre-execution control is proven.
