@@ -109,7 +109,7 @@ Classification terms:
 | 1 | Claude Code CLI | VERIFIED WITH LIMITATIONS in Phase 15. `onus claude-hook` exists and is explicitly L1 BEST-EFFORT. `@anthropic-ai/claude-code@2.1.177` was reachable, but unauthenticated. | No code change required for this surface. Keep BEST-EFFORT label and do not claim live authenticated agent-loop proof. | Package probe passed; authenticated Claude Code is not available. | VERIFIED WITH LIMITATIONS for hook process; BLOCKED for authenticated live agent loop. |
 | 2 | Windsurf Editor / Cascade | PROTOCOL-ONLY in Phase 15. No Windsurf-specific native runtime adapter exists. Official docs expose MCP and hooks; this repo now provides a bounded MCP routing template. | Native hook/runtime testing remains blocked until Windsurf is installed. | Not installed locally. | PROTOCOL-ONLY via MCP; BLOCKED for native runtime proof. |
 | 3 | Cline | PROTOCOL-ONLY in Phase 15. Cline can route MCP server traffic through `onus mcp-proxy`, but no native Cline runtime adapter is proven. | Native runtime testing remains blocked until Cline is installed. | Not installed locally. | PROTOCOL-ONLY via MCP; no native proof. |
-| 4 | Visual Studio Code Agents | PARTIAL. VS Code extension exists and VS Code is installed. | Validate extension package shape and add an integration report. Native VS Code agent internals may remain BEST-EFFORT. | VS Code `1.124.2` installed. | VERIFIED WITH LIMITATIONS for extension/runtime checks if smokeable; L1 BEST-EFFORT. |
+| 4 | Visual Studio Code Agents | VERIFIED WITH LIMITATIONS in Phase 15. VS Code extension exists, VS Code `1.124.2` is installed, and extension JavaScript syntax passes. | Live VS Code agent/Copilot tool-call interception remains unverified. Package JSON has a UTF-8 BOM caveat. | VS Code `1.124.2` installed. | VERIFIED WITH LIMITATIONS for extension checks; L1 BEST-EFFORT. |
 | 5 | GitHub Copilot SDK | MISSING. No SDK adapter found. | Build a narrow SDK/tool executor adapter only if official SDK can be installed and tested locally. | SDK not installed; GitHub cloud credentials not available. | PROTOCOL-ONLY/BLOCKED unless local SDK fixture can run without credentials. |
 | 6 | Google Antigravity | MISSING. Official docs expose MCP configuration. | Add MCP routing instructions/report; no product-runtime claim without installed Antigravity. | Not installed locally. | PROTOCOL-ONLY or BLOCKED. |
 | 7 | Cursor CLI | MISSING. No Cursor runtime found. | Determine current official CLI control surface; use MCP or L3 wrapper if no native hook is available. | Not installed locally. | BLOCKED unless runtime installed. |
@@ -142,13 +142,12 @@ Classification terms:
 
 | Count | Status |
 | ---: | --- |
-| 1 | Surface adapters newly verified in Phase 15 |
+| 2 | Surface adapters newly verified in Phase 15 |
 | 2 | Surface adapters added as protocol-only in Phase 15 |
-| 2 | Surface adapters merged from integration branches |
-| 17 | Surface adapters remaining |
+| 3 | Surface adapters merged from integration branches |
+| 16 | Surface adapters remaining |
 
-Next required branch: `integration/visual-studio-code-agents`.
+Next required branch: `integration/github-copilot-sdk`.
 
-Next exact action: inspect the existing VS Code extension against VS Code agent
-claims, run safe local VS Code/package checks, and keep all claims L1
-BEST-EFFORT unless pre-execution control is proven.
+Next exact action: inspect GitHub Copilot SDK availability and add only a
+bounded SDK/tool-executor route if it can be installed and tested locally.
