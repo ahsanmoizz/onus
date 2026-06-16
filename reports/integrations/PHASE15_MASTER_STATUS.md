@@ -116,7 +116,7 @@ Classification terms:
 | 8 | Cursor Agent in Cursor IDE | BLOCKED in Phase 15. Cursor IDE is not installed, and VS Code extension checks are not reused as Cursor Agent proof. | Future work requires Cursor IDE runtime plus native hook/MCP/L3 route verification. | Cursor not installed locally. | BLOCKED. |
 | 9 | Cursor Background Agents | BLOCKED in Phase 15. This is a cloud/service surface and no Cursor cloud runtime or credentials are available locally. | Future work requires service-native hook/policy evidence or L4 authority for privileged side effects. | Credentials/service unavailable. | BLOCKED. |
 | 10 | OpenAI Codex CLI | PROTOCOL-ONLY in Phase 15 with local runtime blocker. Official docs expose CLI and MCP; local Windows app binary exists but direct version probe failed with access denied. | Native runtime proof requires executable access. MCP support requires Codex configured to launch `onus mcp-proxy`. | Windows app binary found; access denied on version probe. | PROTOCOL-ONLY via MCP; BLOCKED for native runtime proof. |
-| 11 | Gemini CLI | MISSING. Official CLI supports local/remote MCP servers. | Add MCP gateway configuration/report if CLI installed; otherwise document blocked runtime. | Not installed locally. | PROTOCOL-ONLY or BLOCKED. |
+| 11 | Gemini CLI | PROTOCOL-ONLY in Phase 15. Official CLI supports MCP; repo now includes a bounded Onus MCP routing template. | Native runtime testing remains blocked until Gemini CLI is installed. | Not installed locally. | PROTOCOL-ONLY via MCP; BLOCKED for native runtime proof. |
 | 12 | Continue CLI | MISSING. Continue supports CLI/TUI and tool permissions; MCP-compatible routing may be possible. | Add config/report only after installing or detecting Continue. | Not installed locally. | PROTOCOL-ONLY or BLOCKED. |
 | 13 | Continue Agent for VS Code | MISSING as a product-specific adapter. | Use extension configuration or MCP if available; distinguish from generic VS Code extension. | Continue extension not detected. | PROTOCOL-ONLY or BLOCKED. |
 | 14 | Continue Agent for JetBrains | MISSING. | Use JetBrains/Continue configuration only with installed runtime. | JetBrains/Continue runtime not detected. | BLOCKED. |
@@ -143,12 +143,12 @@ Classification terms:
 | Count | Status |
 | ---: | --- |
 | 2 | Surface adapters newly verified in Phase 15 |
-| 4 | Surface adapters added as protocol-only in Phase 15 |
+| 5 | Surface adapters added as protocol-only in Phase 15 |
 | 4 | Surface adapters blocked with evidence in Phase 15 |
-| 9 | Surface adapters merged from integration branches |
-| 10 | Surface adapters remaining |
+| 10 | Surface adapters merged from integration branches |
+| 9 | Surface adapters remaining |
 
-Next required branch: `integration/gemini-cli`.
+Next required branch: `integration/continue-cli`.
 
-Next exact action: inspect Gemini CLI availability and MCP routing; keep claims
-bounded if the CLI is unavailable.
+Next exact action: inspect Continue CLI availability and official tool/MCP
+control surfaces; classify without claiming untested runtime behavior.
