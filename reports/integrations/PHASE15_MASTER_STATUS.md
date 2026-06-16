@@ -115,7 +115,7 @@ Classification terms:
 | 7 | Cursor CLI | BLOCKED in Phase 15. No local Cursor CLI runtime is available, and VS Code evidence is not reused as Cursor proof. | Future work requires installed Cursor CLI plus native hook/MCP/L3 route verification. | Not installed locally. | BLOCKED. |
 | 8 | Cursor Agent in Cursor IDE | BLOCKED in Phase 15. Cursor IDE is not installed, and VS Code extension checks are not reused as Cursor Agent proof. | Future work requires Cursor IDE runtime plus native hook/MCP/L3 route verification. | Cursor not installed locally. | BLOCKED. |
 | 9 | Cursor Background Agents | BLOCKED in Phase 15. This is a cloud/service surface and no Cursor cloud runtime or credentials are available locally. | Future work requires service-native hook/policy evidence or L4 authority for privileged side effects. | Credentials/service unavailable. | BLOCKED. |
-| 10 | OpenAI Codex CLI | MISSING adapter. Codex binary exists as Windows app but direct execution probe failed. Official docs expose CLI and MCP. | Add MCP/L3 route report; test only if CLI executable can be invoked. | Windows app binary found; access denied on version probe. | BLOCKED locally; PROTOCOL-ONLY via MCP where configurable. |
+| 10 | OpenAI Codex CLI | PROTOCOL-ONLY in Phase 15 with local runtime blocker. Official docs expose CLI and MCP; local Windows app binary exists but direct version probe failed with access denied. | Native runtime proof requires executable access. MCP support requires Codex configured to launch `onus mcp-proxy`. | Windows app binary found; access denied on version probe. | PROTOCOL-ONLY via MCP; BLOCKED for native runtime proof. |
 | 11 | Gemini CLI | MISSING. Official CLI supports local/remote MCP servers. | Add MCP gateway configuration/report if CLI installed; otherwise document blocked runtime. | Not installed locally. | PROTOCOL-ONLY or BLOCKED. |
 | 12 | Continue CLI | MISSING. Continue supports CLI/TUI and tool permissions; MCP-compatible routing may be possible. | Add config/report only after installing or detecting Continue. | Not installed locally. | PROTOCOL-ONLY or BLOCKED. |
 | 13 | Continue Agent for VS Code | MISSING as a product-specific adapter. | Use extension configuration or MCP if available; distinguish from generic VS Code extension. | Continue extension not detected. | PROTOCOL-ONLY or BLOCKED. |
@@ -143,12 +143,12 @@ Classification terms:
 | Count | Status |
 | ---: | --- |
 | 2 | Surface adapters newly verified in Phase 15 |
-| 3 | Surface adapters added as protocol-only in Phase 15 |
+| 4 | Surface adapters added as protocol-only in Phase 15 |
 | 4 | Surface adapters blocked with evidence in Phase 15 |
-| 8 | Surface adapters merged from integration branches |
-| 11 | Surface adapters remaining |
+| 9 | Surface adapters merged from integration branches |
+| 10 | Surface adapters remaining |
 
-Next required branch: `integration/openai-codex-cli`.
+Next required branch: `integration/gemini-cli`.
 
-Next exact action: inspect OpenAI Codex CLI availability and MCP configuration,
-then classify local Windows app access limitations honestly.
+Next exact action: inspect Gemini CLI availability and MCP routing; keep claims
+bounded if the CLI is unavailable.
