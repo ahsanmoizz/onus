@@ -123,7 +123,7 @@ Classification terms:
 | 15 | JetBrains Junie CLI | PROTOCOL-ONLY in Phase 15. Official docs show Junie CLI MCP configuration; local Junie runtime/auth are unavailable. | Native runtime proof requires installed, authenticated Junie CLI. | Not installed locally. | PROTOCOL-ONLY via MCP; BLOCKED for native runtime proof. |
 | 16 | JetBrains Junie IDE Agent | BLOCKED in Phase 15. JetBrains IDE/Junie Agent runtime is unavailable; Junie CLI evidence is not reused. | Future proof requires JetBrains IDE runtime or routed MCP/L3 evidence. | JetBrains runtime not detected. | BLOCKED. |
 | 17 | Aider | BLOCKED in Phase 15. Aider is not installed and model credentials are unavailable; future proof should prefer L3 workspace execution. | Future work requires installed Aider plus verified L3 or Onus-owned execution route. | Not installed locally. | BLOCKED. |
-| 18 | OpenAI Agents SDK | MISSING as a framework adapter. Python Guardian can wrap tool functions manually. | Add a small SDK tool wrapper only if the official SDK can be installed/tested; keep provider credential claims separate. | No credentials assumed. Python available. | L2 for wrapped tools; no model-runtime claim without credentials. |
+| 18 | OpenAI Agents SDK | BLOCKED in Phase 15. `openai-agents` package is not installed and `OPENAI_API_KEY` is absent. | Future work requires installed SDK, credentials, and a real Onus-owned tool-wrapper test. | Python available; SDK package absent; credentials absent. | BLOCKED. |
 | 19 | LangChain Agents / LangGraph | MISSING as a framework adapter. | Add middleware/tool wrapper around Onus evaluator; test with local no-model tool calls or fixtures. | Python available; packages not confirmed installed. | L2 for wrapped tools if package is available; otherwise BLOCKED. |
 | 20 | CrewAI | MISSING as a framework adapter. | Add tool/flow wrapper if package install/runtime is available; test without live model if possible. | Package not confirmed installed. | L2 for wrapped tools if package is available; otherwise BLOCKED. |
 
@@ -144,11 +144,11 @@ Classification terms:
 | ---: | --- |
 | 2 | Surface adapters newly verified in Phase 15 |
 | 7 | Surface adapters added as protocol-only in Phase 15 |
-| 8 | Surface adapters blocked with evidence in Phase 15 |
-| 16 | Surface adapters merged from integration branches |
-| 3 | Surface adapters remaining |
+| 9 | Surface adapters blocked with evidence in Phase 15 |
+| 17 | Surface adapters merged from integration branches |
+| 2 | Surface adapters remaining |
 
-Next required branch: `integration/openai-agents-sdk`.
+Next required branch: `integration/langchain-langgraph`.
 
-Next exact action: inspect OpenAI Agents SDK package availability and add a real
-Onus tool-wrapper adapter only if it can be tested without live model claims.
+Next exact action: inspect LangChain/LangGraph package availability and add a
+real Onus middleware/tool-wrapper only if it can be tested locally.
