@@ -120,7 +120,7 @@ Classification terms:
 | 12 | Continue CLI | PROTOCOL-ONLY in Phase 15. Continue CLI is unavailable locally; future routes are tool permissions/executor, MCP, or L3. | Native runtime testing remains blocked until Continue CLI is installed. | Not installed locally. | PROTOCOL-ONLY; BLOCKED for native runtime proof. |
 | 13 | Continue Agent for VS Code | BLOCKED in Phase 15. Continue extension/runtime is not detected; generic VS Code evidence is not reused. | Future work requires Continue-specific runtime configuration or Onus-owned MCP/L3 route. | Continue extension not detected. | BLOCKED. |
 | 14 | Continue Agent for JetBrains | BLOCKED in Phase 15. JetBrains and Continue Agent runtimes are unavailable locally. | Future proof requires JetBrains + Continue runtime and a documented control surface. | JetBrains/Continue runtime not detected. | BLOCKED. |
-| 15 | JetBrains Junie CLI | MISSING. Official docs show Junie CLI and MCP configuration. | Add MCP route or CLI wrapper only with installed, authenticated Junie. | Not installed locally. | PROTOCOL-ONLY or BLOCKED. |
+| 15 | JetBrains Junie CLI | PROTOCOL-ONLY in Phase 15. Official docs show Junie CLI MCP configuration; local Junie runtime/auth are unavailable. | Native runtime proof requires installed, authenticated Junie CLI. | Not installed locally. | PROTOCOL-ONLY via MCP; BLOCKED for native runtime proof. |
 | 16 | JetBrains Junie IDE Agent | MISSING. Official docs show IDE agent and MCP settings. | Add JetBrains MCP configuration report only with IDE runtime. | JetBrains runtime not detected. | PROTOCOL-ONLY or BLOCKED. |
 | 17 | Aider | MISSING as a product adapter. Could be wrapped by L3 workspace or shell policy, but direct file edits outside Onus can bypass L1 hooks. | Add Aider wrapper/report; prefer L3 workspace for meaningful containment. | Not installed locally. | BLOCKED locally; L3 wrapper target on Linux. |
 | 18 | OpenAI Agents SDK | MISSING as a framework adapter. Python Guardian can wrap tool functions manually. | Add a small SDK tool wrapper only if the official SDK can be installed/tested; keep provider credential claims separate. | No credentials assumed. Python available. | L2 for wrapped tools; no model-runtime claim without credentials. |
@@ -143,12 +143,12 @@ Classification terms:
 | Count | Status |
 | ---: | --- |
 | 2 | Surface adapters newly verified in Phase 15 |
-| 6 | Surface adapters added as protocol-only in Phase 15 |
+| 7 | Surface adapters added as protocol-only in Phase 15 |
 | 6 | Surface adapters blocked with evidence in Phase 15 |
-| 13 | Surface adapters merged from integration branches |
-| 6 | Surface adapters remaining |
+| 14 | Surface adapters merged from integration branches |
+| 5 | Surface adapters remaining |
 
-Next required branch: `integration/jetbrains-junie-cli`.
+Next required branch: `integration/jetbrains-junie-ide-agent`.
 
-Next exact action: inspect JetBrains Junie CLI availability and MCP support; do
-not claim proof without authenticated Junie runtime.
+Next exact action: inspect JetBrains Junie IDE Agent separately from Junie CLI;
+do not claim proof without JetBrains IDE runtime.
