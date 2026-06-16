@@ -106,7 +106,7 @@ Classification terms:
 
 | Order | Exact surface | Existing state | Work required | Runtime available | Final target |
 | ---: | --- | --- | --- | --- | --- |
-| 1 | Claude Code CLI | PARTIAL. `onus claude-hook` exists and is explicitly L1 BEST-EFFORT. Prior report pinned `@anthropic-ai/claude-code@2.1.177` but lacked authentication. | Re-verify current hook behavior, keep BEST-EFFORT label, document unauthenticated live-agent blocker, add/refresh installer or report only if needed. | Package can be probed through `npx`; authenticated Claude Code is not available. | VERIFIED WITH LIMITATIONS for hook process; BLOCKED for authenticated live agent loop. |
+| 1 | Claude Code CLI | VERIFIED WITH LIMITATIONS in Phase 15. `onus claude-hook` exists and is explicitly L1 BEST-EFFORT. `@anthropic-ai/claude-code@2.1.177` was reachable, but unauthenticated. | No code change required for this surface. Keep BEST-EFFORT label and do not claim live authenticated agent-loop proof. | Package probe passed; authenticated Claude Code is not available. | VERIFIED WITH LIMITATIONS for hook process; BLOCKED for authenticated live agent loop. |
 | 2 | Windsurf Editor / Cascade | MISSING. No Windsurf-specific adapter in repo. Official docs expose MCP and hooks. | Add protocol configuration/report around MCP gateway or native hook if runtime is installed; do not claim native proof without Windsurf. | Not installed locally. | PROTOCOL-ONLY or BLOCKED. |
 | 3 | Cline | MISSING as a product adapter. MCP gateway can be used if Cline is configured to route MCP through Onus. | Add Cline MCP configuration docs/scripts and runtime harness only if Cline is available. | Not installed locally. | PROTOCOL-ONLY via MCP; no native proof. |
 | 4 | Visual Studio Code Agents | PARTIAL. VS Code extension exists and VS Code is installed. | Validate extension package shape and add an integration report. Native VS Code agent internals may remain BEST-EFFORT. | VS Code `1.124.2` installed. | VERIFIED WITH LIMITATIONS for extension/runtime checks if smokeable; L1 BEST-EFFORT. |
@@ -142,12 +142,12 @@ Classification terms:
 
 | Count | Status |
 | ---: | --- |
-| 0 | Surface adapters newly verified in Phase 15 |
+| 1 | Surface adapters newly verified in Phase 15 |
 | 0 | Surface adapters merged from integration branches |
-| 20 | Surface adapters remaining |
+| 19 | Surface adapters remaining |
 
-Next required branch: `integration/claude-code-cli`.
+Next required branch: `integration/windsurf-editor-cascade`.
 
-Next exact action: re-verify Claude Code CLI hook behavior on its own integration
-branch, update a product-specific report, and commit only if the evidence matches
-the bounded L1 BEST-EFFORT claim.
+Next exact action: inspect Windsurf/Cascade official MCP and hook surfaces on its
+own integration branch, then add only protocol-level configuration/evidence if a
+runtime is unavailable.
