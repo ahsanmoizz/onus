@@ -1456,7 +1456,64 @@ def check_command(command: str, **kwargs: Any) -> OnusResult:
     return get_client().check_command(command, **kwargs)
 
 
-__all__ = [
+# ---------------------------------------------------------------------------
+# CrewAI adapter
+# ---------------------------------------------------------------------------
+
+def crewai_onus_tool(*, client: Optional[OnusClient] = None):
+    """Decorator that wraps a CrewAI tool function to route through Onus.
+
+    The returned object is a standard CrewAI ``Tool`` whose ``run()`` method
+    delegates to Onus for evaluation **before** executing the underlying
+    Python function.
+
+    .. caution::
+        This is an advisory wrapper.  The underlying ``func()``,
+        ``_run()``, and the raw Python callable are still reachable
+        without Onus supervision.
+    """
+    from crewai.tools import tool as crewai_tool  # type: ignore[import-untyped]
+
+    def decorator(func: Callable) -> Any:
+        _client = client or get_client()
+
+        # Determine action_type from name hints or default
+        action_type = "file_write"
+        name_lower = func.__name__.lower()
+        if "read" in name_lower or "list" in name_lower or "get" in name_lower:
+            action_type = "file_read"
+        elif "write" in name_lower or "create" in name_lower or "save" in name_lower:
+            action_type = "file_write"
+        elif "delete" in name_lower or "remove" in name_lower or "rm" in name_lower:
+            action_type = "file_delete"
+        elif "exec" in name_lower or "run" in name_lower or "shell" in name_lower or "bash" in name_lower or "command" in name_lower:
+            action_type = "shell"
+
+        def onus_wrapper(*args: Any, **kwargs: Any) -> Any:
+            # Evaluate through Onus before executing
+            payload = dict(kwargs)
+            result = _client.evaluate(action_type, payload, tool=f"crewai_{func.__name__}")
+            if result.blocked:
+                raise OnusBlockError(result)
+            return func(*args, **kwargs)
+
+        # Preserve the original function's docstring
+        onus_wrapper.__doc__ = func.__doc__ or f"Onus-wrapped {func.__name__}"
+
+        # Build a CrewAI Tool manually from the onus-wrapped callable
+        from crewai.tools.base_tool import Tool  # type: ignore[import-untyped]
+
+        result_tool = Tool(
+            name=func.__name__,
+            description=func.__doc__ or f"Onus-wrapped {func.__name__}",
+            func=onus_wrapper,
+        )
+        return result_tool
+
+    return decorator
+
+
+__all__ = [  # noqa: C8201  -- re-define from above to add new entries
     "Guardian",
     "OnusBlockError",
     "OnusEvaluationError",
@@ -1475,6 +1532,7 @@ __all__ = [
     "RequiredEvidence",
     "CompletionEvidence",
     "PromptIntakeResult",
+    "crewai_onus_tool",
     "evaluate",
     "check_command",
     "get_client",

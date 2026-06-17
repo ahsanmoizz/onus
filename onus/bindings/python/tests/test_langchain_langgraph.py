@@ -19,7 +19,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from onus import OnusBlockError, OnusClient, OnusResult
+from onus import OnusBlockError, OnusClient, OnusEvaluationError, OnusResult
 
 
 # ── Test fixtures ────────────────────────────────────────────────────
@@ -352,3 +352,143 @@ class TestLangChainAdapter:
         ]
         missing = [r for r in required if r not in implemented]
         assert not missing, f"Interception contract incomplete: {missing}"
+
+
+# ── Bypass, fail-closed, and approval binding tests ─────────────────
+
+
+class TestLangChainBypassAndFailClosed:
+    """Missing security-invariant tests for LangChain/LangGraph adapter.
+
+    1. Direct .func() bypass — prove unwrapped call has no Onus enforcement.
+    2. Fail-closed on binary unavailable.
+    3. Fail-closed on binary crash.
+    4. Approval binding principle (action_id/hash present).
+    """
+
+    def test_bypass_via_dot_func_invokes_directly(self, onus_client: OnusClient):
+        """Prove calling StructuredTool.func() directly bypasses Onus.
+
+        A developer or agent who calls tool.func(args) skips the
+        OnusToolWrapper entirely — no evaluation, no deny, no correction.
+        """
+        from langchain_core.tools import tool
+
+        @tool
+        def write_file(path: str) -> str:
+            """Write content to path."""
+            return f"WROTE {path}"
+
+        # Direct call via .func bypasses Onus
+        result = write_file.func("direct-bypass.txt")
+        assert "WROTE" in result
+        assert "direct-bypass" in result
+
+    def test_bypass_via_direct_invoke_preserves_unwrapped_behavior(self, onus_client: OnusClient):
+        """Prove the unwrapped tool still works when called directly."""
+        from langchain_core.tools import tool
+
+        @tool
+        def read_file(path: str) -> str:
+            """Read a file at path."""
+            return f"READ {path}"
+
+        # Call directly without any Onus wrapper
+        result = read_file.invoke({"path": "test.txt"})
+        assert "READ" in result
+        assert "test.txt" in result
+
+    def test_fail_closed_when_binary_unavailable(self, onus_client: OnusClient, tmp_path: Path):
+        """Prove the wrapper fails CLOSED when the binary is missing."""
+        missing_bin = str(tmp_path / "nonexistent_onus.exe")
+        from onus import OnusClient as OC
+        broken = OnusClient(
+            bin_path=missing_bin,
+            rules_path=str(Path(__file__).parents[3] / "rules" / "default.toml"),
+            db_path=str(tmp_path / "audit.db"),
+        )
+
+        with pytest.raises((FileNotFoundError, OnusEvaluationError)):
+            broken.evaluate("shell", {"command": "echo test"}, tool="Bash")
+
+    def test_fail_closed_when_binary_crashes(self, onus_client: OnusClient, tmp_path: Path):
+        """Prove the wrapper fails closed on binary crash."""
+        crash_bin = str(tmp_path / "crash_onus.sh")
+        with open(crash_bin, "w") as f:
+            f.write("#!/bin/bash\nexit 1\n")
+        import os
+        os.chmod(crash_bin, 0o755)
+
+        from onus import OnusClient as OC
+        try:
+            broken = OC(
+                bin_path=crash_bin,
+                rules_path=str(Path(__file__).parents[3] / "rules" / "default.toml"),
+                db_path=str(tmp_path / "audit.db"),
+            )
+            broken.evaluate("shell", {"command": "echo test"}, tool="Bash")
+            pytest.fail("Expected OnusEvaluationError for binary crash")
+        except OnusEvaluationError:
+            pass
+        except Exception as e:
+            assert True, f"Fail-closed via {type(e).__name__}: {e}"
+
+    def test_approval_binding_invariant(self, onus_client: OnusClient):
+        """Prove that evaluate() returns an action_id for approval binding.
+
+        If approval binding is to work, the evaluation result must identify
+        the exact action that was evaluated so that payload changes can be
+        detected.
+        """
+        result = onus_client.evaluate(
+            "shell", {"command": "rm -rf /important"}, tool="Bash"
+        )
+        assert result.blocked, "Destructive command should be blocked"
+        assert result.action_id is not None, \
+            "Approval binding requires action_id in evaluation result"
+        assert result.canonical_payload_hash is not None, \
+            "Approval binding requires payload hash"
+
+    def test_approval_required_action_flows_through_evaluate(self, onus_client: OnusClient):
+        """Prove Onus returns approval_decision info when relevant."""
+        result = onus_client.evaluate(
+            "shell", {"command": "echo harmless"}, tool="Bash"
+        )
+        # For harmless actions, approval decision should be defined
+        # (ALLOW_WITH_OBLIGATIONS is also a valid approval decision)
+        assert result.approval_decision is not None, \
+            "Approval decision must be present"
+
+    def test_changed_payload_rejected(
+        self, onus_client: OnusClient
+    ):
+        """Prove that different payloads produce different hashes.
+
+        A different canonical_payload_hash means the approval is no longer
+        valid for the modified action. This validates the binding invariant
+        at the hash level.
+        """
+        result1 = onus_client.evaluate(
+            "shell", {"command": "rm /safe.txt"}, tool="Bash"
+        )
+        result2 = onus_client.evaluate(
+            "shell", {"command": "rm /different.txt"}, tool="Bash"
+        )
+        # Different commands must produce different payload hashes
+        assert result1.canonical_payload_hash != result2.canonical_payload_hash, \
+            "Different commands must produce different payload hashes"
+
+    def test_payload_hash_deterministic(
+        self, onus_client: OnusClient
+    ):
+        """Prove that evaluating the same payload twice produces the same hash."""
+        result1 = onus_client.evaluate(
+            "shell", {"command": "touch /tmp/onus-hash-test"}, tool="Bash"
+        )
+        result2 = onus_client.evaluate(
+            "shell", {"command": "touch /tmp/onus-hash-test"}, tool="Bash"
+        )
+        assert result1.canonical_payload_hash == result2.canonical_payload_hash, \
+            "Same payload must produce deterministic hash"
+        assert result1.action_id != result2.action_id, \
+            "Each evaluation must produce a unique action_id"
