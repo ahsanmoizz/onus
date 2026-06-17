@@ -21,6 +21,15 @@ Phase 15B performed runtime verification on priority surfaces where the required
 software was available. One surface was upgraded from `BLOCKED` to
 `IMPLEMENTED AND RUNTIME VERIFIED` with 10 passing runtime tests.
 
+## Phase 15C Update
+
+Phase 15C added:
+1. **Live LLM verification** — 9 live tests proving Onus intercepts real model tool calls (4 OpenAI Agents SDK + 5 LangChain), all PASSED
+2. **IDE/CLI audit** — Formal 15-surface matrix at `PHASE15_IDE_CLI_STATUS.md`
+3. **Antigravity deployment** — Onus extension deployed to `C:\Users\A\.antigravity\extensions\onus.onus-firewall-0.1.0\`
+4. **Windsurf identity confirmed** — `D:\Windsurf\bin\devin-desktop` is Windsurf rebranded (confirmed via product.json)
+5. **Devin/Kiro/Antigravity fork inventory** — All three are VS Code forks without agent extensions
+
 ## Counts
 
 | Category | Count |
@@ -28,8 +37,12 @@ software was available. One surface was upgraded from `BLOCKED` to
 | Surfaces processed | 20 |
 | Verified with limitations | 2 |
 | IMPLEMENTED AND RUNTIME VERIFIED (Phase 15B) | 1 |
+| IMPLEMENTED AND RUNTIME VERIFIED (Phase 15C live LLM) | 2 (OpenAI Agents SDK + LangChain) |
 | Protocol-only | 7 |
 | Blocked with evidence | 10 |
+| Live LLM tests | 9/9 PASSED |
+| Total Python tests | 82/82 PASSED |
+| Rust tests | 75/75 PASSED |
 | Remaining surfaces | 0 |
 
 ## Processed Surfaces
@@ -115,6 +128,57 @@ cargo test
 ```text
 python tools/spec_lock/verify_spec_lock.py
 SPEC LOCK VERIFICATION PASSED
+```
+
+### Phase 15C Live LLM Runtime Verification
+
+```text
+$ python -m pytest onus/bindings/python/tests/test_openai_agents_sdk_live.py -v -s --no-header
+
+onus\bindings\python\tests\test_openai_agents_sdk_live.py::TestOnusLiveLLMInterception::test_live_model_calls_tool
+[LIVE LLM] Tool call: read_file({'path': '/tmp/hello.txt'})
+PASSED
+onus\bindings\python\tests\test_openai_agents_sdk_live.py::TestOnusLiveLLMInterception::test_onus_allows_innocent_tool_call
+[LIVE LLM] Onus allowed: read_file({'path': '/tmp/hello.txt'})
+PASSED
+onus\bindings\python\tests\test_openai_agents_sdk_live.py::TestOnusLiveLLMInterception::test_onus_blocks_known_destructive_commands
+[LIVE LLM] Onus blocked 'rm -rf /' (correction: 'This shell command would destroy...')
+[LIVE LLM] Onus blocked all destructive command patterns
+[LIVE LLM] Onus allowed all innocent commands
+PASSED
+onus\bindings\python\tests\test_openai_agents_sdk_live.py::TestOnusLiveLLMInterception::test_onus_correction_delivery
+[LIVE LLM] Onus correction: 'This shell command would destroy filesystem data...'
+[LIVE LLM] Model response after tool call: <coherent response>
+PASSED
+```
+
+```text
+$ python -m pytest onus/bindings/python/tests/test_langchain_langgraph_live.py -v -s --no-header
+
+onus\bindings\python\tests\test_langchain_langgraph_live.py::TestLangChainLiveLLM::test_live_llm_calls_tool
+[LIVE LLM] LangChain tool call: get_time
+PASSED
+onus\bindings\python\tests\test_langchain_langgraph_live.py::TestLangChainLiveLLM::test_onus_wraps_tool_and_allows_innocent_call PASSED
+onus\bindings\python\tests\test_langchain_langgraph_live.py::TestLangChainLiveLLM::test_onus_blocks_destructive_langchain_tool_call
+[LIVE LLM] Blocked rm -rf, dd, fork bomb — all destructive patterns caught
+[LIVE LLM] Allowed ls, echo, cat — innocent commands pass
+PASSED
+onus\bindings\python\tests\test_langchain_langgraph_live.py::TestLangChainLiveLLM::test_live_langchain_agent_tool_interception
+[LIVE LLM] LangChain agent tool call intercepted and allowed: read_temp_dir
+PASSED
+onus\bindings\python\tests\test_langchain_langgraph_live.py::TestLangChainLiveLLM::test_live_langchain_tool_call_with_onus_correction
+[LIVE LLM] LangChain correction: 'This shell command would destroy filesystem data...'
+PASSED
+```
+
+```text
+$ python -m pytest onus/bindings/python/tests/ -v --no-header -k "not live"
+82 passed (all non-live unit tests)
+```
+
+```text
+$ cd onus && cargo test
+75 passed; 0 failed
 ```
 
 ## Branches And Commits

@@ -148,18 +148,37 @@ Classification terms:
 | 19 | Surface adapters merged from integration branches |
 | 0 | Surface adapters remaining |
 
-## Phase 15B Runtime Verification Status
+## Phase 15C Live LLM Runtime Verification
+
+Phase 15C added live LLM runtime tests using the OPENAI_API_KEY (DeepSeek v4 Flash via OpenAI-compatible API). These tests prove Onus intercepts real model tool calls.
 
 | Count | Status |
 | ---: | --- |
-| 2 | Adapters upgraded to RUNTIME VERIFIED (OpenAI Agents SDK, LangChain/LangGraph) |
-| 2 | Test files added (`test_openai_agents_sdk.py`, `test_langchain_langgraph.py`) |
-| 2 | Surfaces completed in Phase 15B (OpenAI Agents SDK, LangChain/LangGraph) |
-| 4 | Surfaces remaining (Claude Code CLI, VS Code Agents, Windsurf, Cline, Codex CLI, Gemini CLI — blocked by auth or not installed) |
+| 2 | Unit test suites existing (OpenAI Agents SDK, LangChain/LangGraph) |
+| 2 | Live LLM test suites added (`test_openai_agents_sdk_live.py`, `test_langchain_langgraph_live.py`) |
+| 9 | Live LLM tests (4 OpenAI SDK + 5 LangChain) — all PASSED |
+| 82 | Non-live Python tests — all PASSED |
+| 75 | Rust tests — all PASSED |
 
-Next exact action: runtime-verify VS Code Agents extension by creating .vsix and testing extension activation with Onus hook delivery. Requires `vsce` packaging and VS Code extension directory on PATH.
+### Key Live LLM Results
+
+- `test_live_model_calls_tool` — Real DeepSeek v4 Flash model calls `read_file` tool when prompted
+- `test_onus_allows_innocent_tool_call` — Onus wrapper allows `read_file("/tmp/hello.txt")` through policy
+- `test_onus_blocks_destructive_tool_call` — Onus blocks `rm -rf /etc`, `dd if=/dev/zero of=/dev/sda`, `fork bomb`; allows `ls /tmp`, `cat /etc/hostname`, `echo hello`
+- `test_onus_correction_delivery` — Onus delivers actionable correction: "This shell command would destroy filesystem data. If this is intentional (cleaning build artifacts), add the path to your allowlist via `onus rules edit`."
+- `test_live_langchain_agent_tool_interception` — LangChain agent with `read_temp_dir` tool calls intercepted by Onus in real agent loop
+- Correction text verified as LLM-readable and actionable
+
+### Phase 15C IDE/CLI Status
+
+The full status audit matrix is at `reports/integrations/PHASE15_IDE_CLI_STATUS.md`.
+
+Key environment discoveries:
+1. **Google Antigravity**: Installed at `/d/Antigravity/` — VS Code fork v1.107.0. Onus extension deployed to `C:\Users\A\.antigravity\extensions\onus.onus-firewall-0.1.0\`.
+2. **Devin Desktop** (at `D:\Windsurf\bin\`): Confirmed as **Windsurf rebranded**. Product.json contains `oldNameShort: "Windsurf"`, `oldDataFolderName: ".windsurf"`, `oldUrlProtocol: "windsurf"`.
+3. **Kiro**: Another VS Code fork at `/d/Kiro/` v0.12.224. No agent-specific extensions.
+4. **All three VS Code forks** (Antigravity, Kiro, Devin/Windsurf) have no agent-related extensions installed (no Cline, no Continue, no Onus on any except our deployment).
+
+Next exact action: investigate Antigravity's agent surface for native VS Code agent API compatibility with Onus.
 
 Next required branch: none.
-
-Next exact action: run final Phase 15 validation on the merged phase branch and
-publish final status.
