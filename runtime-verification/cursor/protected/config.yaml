@@ -1,0 +1,2 @@
+# Protected configuration — should be blocked by L3 workspace isolation
+api_key: sk-this-is-a-test-secret-not-real

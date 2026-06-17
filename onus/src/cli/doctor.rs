@@ -19,6 +19,10 @@ pub struct DoctorArgs {
     /// Run only Google Antigravity checks
     #[arg(long)]
     pub antigravity: bool,
+
+    /// Run only Cursor IDE checks
+    #[arg(long)]
+    pub cursor: bool,
 }
 
 /// Run the main `onus doctor` command — check everything.
@@ -31,6 +35,9 @@ pub fn run(args: DoctorArgs) -> anyhow::Result<()> {
     }
     if args.antigravity {
         return run_antigravity();
+    }
+    if args.cursor {
+        return run_cursor();
     }
     let mut ok_count = 0u32;
     let mut warn_count = 0u32;
@@ -176,6 +183,58 @@ pub fn run(args: DoctorArgs) -> anyhow::Result<()> {
         }
         crate::cli::antigravity::AntigravityCheck::Error(e) => {
             log_fail("Google Antigravity", format!("check error: {}", e));
+            fail_count += 1;
+        }
+    }
+
+    // ── Cursor IDE ─────────────────────────────────────────────────────────
+    match crate::cli::cursor::find_cursor() {
+        crate::cli::cursor::CursorCheck::Available { version, path } => {
+            log_ok("Cursor IDE", format!("v{} at {}", version, path.display()));
+            ok_count += 1;
+
+            match crate::cli::cursor::check_hook_installed() {
+                crate::cli::cursor::HookCheck::Installed { command } => {
+                    log_ok("Cursor hook", command);
+                    ok_count += 1;
+                }
+                crate::cli::cursor::HookCheck::NotInstalled => {
+                    log_warn("Cursor hook", "not configured".to_string());
+                    warn_count += 1;
+                }
+                crate::cli::cursor::HookCheck::Error(e) => {
+                    log_warn("Cursor hook", format!("check error: {}", e));
+                    warn_count += 1;
+                }
+            }
+
+            match crate::cli::cursor::check_mcp_configured() {
+                crate::cli::cursor::McpConfigCheck::Configured { server_name } => {
+                    log_ok("Cursor MCP proxy", format!("'{}' configured", server_name));
+                    ok_count += 1;
+                }
+                crate::cli::cursor::McpConfigCheck::NotFound => {
+                    log_warn("Cursor MCP proxy", "not configured".to_string());
+                    warn_count += 1;
+                }
+                crate::cli::cursor::McpConfigCheck::Error(e) => {
+                    log_warn("Cursor MCP proxy", format!("check error: {}", e));
+                    warn_count += 1;
+                }
+            }
+
+            let l3 = crate::cli::cursor::l3_workspace_advice();
+            if !l3.is_empty() {
+                log_ok("Cursor L3 workspace", l3);
+                ok_count += 1;
+            }
+        }
+        crate::cli::cursor::CursorCheck::NotFound => {
+            log_ok("Cursor IDE", "not installed".to_string());
+            ok_count += 1;
+        }
+        crate::cli::cursor::CursorCheck::Error(e) => {
+            log_fail("Cursor IDE", format!("check error: {}", e));
             fail_count += 1;
         }
     }
@@ -344,6 +403,59 @@ pub fn run_antigravity() -> anyhow::Result<()> {
         }
         crate::cli::antigravity::AntigravityCheck::Error(e) => {
             log_fail("Antigravity", format!("check error: {}", e));
+        }
+    }
+
+    Ok(())
+}
+
+/// Run only the Cursor IDE checks.
+pub fn run_cursor() -> anyhow::Result<()> {
+    println!("Onus Doctor — Cursor IDE\n");
+
+    match crate::cli::cursor::find_cursor() {
+        crate::cli::cursor::CursorCheck::Available { version, path } => {
+            log_ok("Binary found", format!("Cursor v{} at {}", version, path.display()));
+
+            match crate::cli::cursor::check_hook_installed() {
+                crate::cli::cursor::HookCheck::Installed { command } => {
+                    log_ok("PreToolUse hook", command);
+                }
+                crate::cli::cursor::HookCheck::NotInstalled => {
+                    log_warn("PreToolUse hook", "not configured".to_string());
+                    println!("\n  Run `onus setup --cursor` to install.");
+                }
+                crate::cli::cursor::HookCheck::Error(e) => {
+                    log_fail("PreToolUse hook", format!("error: {}", e));
+                }
+            }
+
+            match crate::cli::cursor::check_mcp_configured() {
+                crate::cli::cursor::McpConfigCheck::Configured { server_name } => {
+                    log_ok("MCP server", format!("'{}' configured", server_name));
+                }
+                crate::cli::cursor::McpConfigCheck::NotFound => {
+                    log_warn("MCP server", "not configured".to_string());
+                    println!("\n  Run `onus setup --cursor` to configure.");
+                }
+                crate::cli::cursor::McpConfigCheck::Error(e) => {
+                    log_fail("MCP server", format!("error: {}", e));
+                }
+            }
+
+            let l3 = crate::cli::cursor::l3_workspace_advice();
+            if !l3.is_empty() {
+                println!();
+                log_ok("L3 workspace", l3);
+            }
+        }
+        crate::cli::cursor::CursorCheck::NotFound => {
+            log_fail("Binary", "Cursor not found on PATH".to_string());
+            println!("\n  Install Cursor:");
+            println!("    https://cursor.com/downloads");
+        }
+        crate::cli::cursor::CursorCheck::Error(e) => {
+            log_fail("Cursor", format!("check error: {}", e));
         }
     }
 
@@ -609,7 +721,7 @@ mod tests {
 
     #[test]
     fn test_doctor_runs_without_panic() {
-        let args = DoctorArgs { claude: false, codex: false, antigravity: false };
+        let args = DoctorArgs { claude: false, codex: false, antigravity: false, cursor: false };
         let _ = run(args);
         let _ = run_claude();
         let _ = run_codex();

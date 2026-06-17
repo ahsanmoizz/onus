@@ -19,6 +19,10 @@ pub struct UninstallArgs {
     /// Remove only the Google Antigravity extension and MCP config
     #[arg(long)]
     pub antigravity: bool,
+
+    /// Remove only the Cursor IDE hooks and MCP proxy
+    #[arg(long)]
+    pub cursor: bool,
 }
 
 /// Run the uninstall command.
@@ -31,6 +35,9 @@ pub fn run(args: UninstallArgs) -> anyhow::Result<()> {
     }
     if args.antigravity {
         return crate::cli::antigravity::run_uninstall();
+    }
+    if args.cursor {
+        return crate::cli::cursor::run_uninstall();
     }
 
     let data_dir = crate::data_dir();

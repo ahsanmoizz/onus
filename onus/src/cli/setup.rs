@@ -24,6 +24,10 @@ pub struct SetupArgs {
     /// Set up only the VS Code extension
     #[arg(long)]
     pub vscode: bool,
+
+    /// Set up only the Cursor IDE hooks and MCP proxy
+    #[arg(long)]
+    pub cursor: bool,
 }
 
 // ── Main setup / uninstall dispatch ───────────────────────────────────────────
@@ -42,6 +46,9 @@ pub fn run(args: SetupArgs) -> anyhow::Result<()> {
         println!("VS Code setup is not yet implemented as a CLI command.");
         println!("Use the VS Code extension or run `onus setup` interactively.");
         return Ok(());
+    }
+    if args.cursor {
+        return crate::cli::cursor::run_setup();
     }
 
     println!("Onus Setup — Interactive Surface Integration");
@@ -71,6 +78,9 @@ pub fn run(args: SetupArgs) -> anyhow::Result<()> {
             DetectedSurface::Antigravity { path } => {
                 println!("  Found Google Antigravity at: {}", path.display());
             }
+            DetectedSurface::Cursor { path } => {
+                println!("  Found Cursor IDE at: {}", path.display());
+            }
             DetectedSurface::VSCode => {
                 println!("  Found VS Code");
             }
@@ -87,6 +97,9 @@ pub fn run(args: SetupArgs) -> anyhow::Result<()> {
             }
             DetectedSurface::Antigravity { .. } => {
                 crate::cli::antigravity::run_setup()?;
+            }
+            DetectedSurface::Cursor { .. } => {
+                crate::cli::cursor::run_setup()?;
             }
             DetectedSurface::VSCode => {
                 println!("  VS Code: run `onus setup vscode` for VS Code integration.");
@@ -129,6 +142,7 @@ pub enum DetectedSurface {
     ClaudeCode { path: PathBuf },
     Codex { path: PathBuf },
     Antigravity { path: PathBuf },
+    Cursor { path: PathBuf },
     VSCode,
 }
 
@@ -151,6 +165,14 @@ pub fn detect_surfaces() -> Vec<DetectedSurface> {
     match crate::cli::antigravity::find_antigravity() {
         crate::cli::antigravity::AntigravityCheck::Available { path, .. } => {
             surfaces.push(DetectedSurface::Antigravity { path });
+        }
+        _ => {}
+    }
+
+    // Check for Cursor IDE
+    match crate::cli::cursor::find_cursor() {
+        crate::cli::cursor::CursorCheck::Available { path, .. } => {
+            surfaces.push(DetectedSurface::Cursor { path });
         }
         _ => {}
     }

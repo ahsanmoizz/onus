@@ -4,6 +4,7 @@ pub mod authority;
 pub mod claude_hook;
 pub mod codex;
 pub mod contract;
+pub mod cursor;
 pub mod daemon_cmd;
 pub mod dashboard;
 pub mod doctor;
@@ -92,6 +93,9 @@ pub enum Commands {
     /// Install or remove the shell wrapper for terminal-based agents
     Shell(shell::ShellArgs),
 
+    /// Run as a Cursor IDE PreToolUse hook — reads JSON on stdin, returns verdict
+    CursorHook(cursor_hook::CursorHookArgs),
+
     /// Verify hash chain integrity of the audit trail
     Verify(verify::VerifyArgs),
 
@@ -99,4 +103,5 @@ pub enum Commands {
     Workspace(workspace::WorkspaceArgs),
 }
 
+pub mod cursor_hook;
 pub mod mcp_proxy;

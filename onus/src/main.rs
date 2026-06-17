@@ -31,6 +31,7 @@ fn main() -> anyhow::Result<()> {
         onus_core::cli::Commands::Uninstall(args) => onus_core::cli::uninstall::run(args)?,
         onus_core::cli::Commands::McpProxy(args) => onus_core::cli::mcp_proxy::run(args)?,
         onus_core::cli::Commands::Shell(args) => onus_core::cli::shell::run(args)?,
+        onus_core::cli::Commands::CursorHook(args) => onus_core::cli::cursor_hook::run(args)?,
         onus_core::cli::Commands::Verify(args) => onus_core::cli::verify::run(args)?,
         onus_core::cli::Commands::Workspace(args) => onus_core::cli::workspace::run(args)?,
     }

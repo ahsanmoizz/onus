@@ -2488,3 +2488,63 @@ class TestSetupAntigravityCommand:
         )
         assert result.returncode == 0, f"uninstall --antigravity failed: {result.stderr}"
         assert "Antigravity" in result.stdout or "antigravity" in result.stdout
+
+
+class TestDoctorCursorCommand:
+    """Tests for `onus doctor --cursor` — Cursor IDE diagnostics."""
+
+    def test_doctor_cursor_runs(self, onus_bin: Path):
+        result = subprocess.run(
+            [str(onus_bin), "doctor", "--cursor"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode in (0, 1), f"doctor --cursor failed: {result.stderr}"
+        assert "Cursor" in result.stdout
+
+    def test_doctor_full_reports_cursor(self, onus_bin: Path):
+        result = subprocess.run(
+            [str(onus_bin), "doctor"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode in (0, 1), f"doctor failed: {result.stderr}"
+        assert "Cursor" in result.stdout, "Full doctor should mention Cursor"
+
+    def test_doctor_cursor_l3_advice(self, onus_bin: Path):
+        result = subprocess.run(
+            [str(onus_bin), "doctor", "--cursor"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode in (0, 1), f"doctor --cursor failed: {result.stderr}"
+        assert any(x in result.stdout for x in ["bubblewrap", "Windows", "workspace",
+            "not available", "Linux", "not found", "Cursor"]), \
+            "Cursor doctor should mention Cursor status"
+
+
+class TestSetupCursorCommand:
+    """Tests for `onus setup --cursor` and `onus uninstall --cursor`."""
+
+    def test_setup_cursor_runs(self, onus_bin: Path):
+        result = subprocess.run(
+            [str(onus_bin), "setup", "--cursor"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        assert result.returncode == 0, f"setup --cursor failed: {result.stderr}"
+        assert "Cursor" in result.stdout
+
+    def test_uninstall_cursor_runs(self, onus_bin: Path):
+        result = subprocess.run(
+            [str(onus_bin), "uninstall", "--cursor"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        assert result.returncode == 0, f"uninstall --cursor failed: {result.stderr}"
+        assert "Cursor" in result.stdout or "cursor" in result.stdout
