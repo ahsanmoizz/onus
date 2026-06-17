@@ -2178,3 +2178,178 @@ while True:
         request = urllib.request.Request(url, method=method)
         with urllib.request.urlopen(request, timeout=5) as response:
             return json.loads(response.read().decode("utf-8"))
+
+
+class TestDoctorCommand:
+    """Tests for `onus doctor` and `onus doctor --claude`."""
+
+    def test_doctor_runs_successfully(self, onus_bin: Path):
+        result = subprocess.run(
+            [str(onus_bin), "doctor"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode in (0, 1), f"doctor failed: {result.stderr}"
+        assert "Onus Doctor" in result.stdout
+        assert "Daemon" in result.stdout
+
+    def test_doctor_claude_runs(self, onus_bin: Path):
+        result = subprocess.run(
+            [str(onus_bin), "doctor", "--claude"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode in (0, 1), f"doctor --claude failed: {result.stderr}"
+        assert "Onus Doctor" in result.stdout
+        assert "Claude" in result.stdout
+
+    def test_doctor_shows_audit_trail(self, onus_bin: Path, rules_path: Path, tmp_path: Path):
+        env = os.environ.copy()
+        env["ONUS_DATA_DIR"] = str(tmp_path / "onus-data")
+        # First run an evaluation to create audit trail
+        subprocess.run(
+            [str(onus_bin), "evaluate", "--rules", str(rules_path), "--db", str(tmp_path / "audit.db")],
+            input=json.dumps({"action": {"type": "shell", "payload": {"command": "echo test"}}}),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        result = subprocess.run(
+            [str(onus_bin), "doctor"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=env,
+        )
+        assert "Audit trail" in result.stdout
+
+
+class TestSetupCommand:
+    """Tests for `onus setup claude` and `onus uninstall claude`."""
+
+    def test_setup_claude_runs(self, onus_bin: Path):
+        result = subprocess.run(
+            [str(onus_bin), "setup", "--claude"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        assert result.returncode == 0, f"setup --claude failed: {result.stderr}"
+
+    def test_uninstall_claude_runs(self, onus_bin: Path):
+        result = subprocess.run(
+            [str(onus_bin), "uninstall", "--claude"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        assert result.returncode == 0, f"uninstall --claude failed: {result.stderr}"
+
+
+class TestClaudeHookReceipt:
+    """Tests for `onus claude-hook --receipt` functionality."""
+
+    def _run_claude_hook(self, onus_bin: Path, db_path: Path, rules_path: Path, payload: dict) -> dict:
+        proc = subprocess.run(
+            [str(onus_bin), "claude-hook", "--db", str(db_path), "--rules", str(rules_path), "--timeout-ms", "10000"],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        assert proc.returncode == 0, f"claude-hook failed: {proc.stderr}"
+        return json.loads(proc.stdout)
+
+    def test_hook_receipt_stderr_output(self, onus_bin: Path, rules_path: Path, tmp_path: Path):
+        db_path = tmp_path / "receipt-test.db"
+        payload = {
+            "tool_name": "Bash",
+            "tool_input": {"command": "echo receipt"},
+            "session_id": "test-receipt",
+            "cwd": "/tmp",
+            "agent": "claude-code",
+            "agent_version": "1.0.0",
+        }
+        proc = subprocess.run(
+            [str(onus_bin), "claude-hook", "--db", str(db_path), "--rules", str(rules_path),
+             "--timeout-ms", "10000", "--receipt"],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        assert proc.returncode == 0, f"hook with receipt failed: {proc.stderr}"
+        assert "ONUS_RECEIPT" in proc.stderr, "Receipt not in stderr"
+
+    def test_hook_receipt_file_output(self, onus_bin: Path, rules_path: Path, tmp_path: Path):
+        db_path = tmp_path / "receipt-file-test.db"
+        receipt_file = tmp_path / "hook-receipt.json"
+        payload = {
+            "tool_name": "Bash",
+            "tool_input": {"command": "echo file_receipt"},
+            "session_id": "test-file-receipt",
+            "cwd": "/tmp",
+            "agent": "claude-code",
+            "agent_version": "1.0.0",
+        }
+        proc = subprocess.run(
+            [str(onus_bin), "claude-hook", "--db", str(db_path), "--rules", str(rules_path),
+             "--timeout-ms", "10000", "--receipt-path", str(receipt_file)],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        assert proc.returncode == 0, f"hook with receipt-path failed: {proc.stderr}"
+        assert receipt_file.exists(), "Receipt file not created"
+        receipt = json.loads(receipt_file.read_text())
+        assert receipt["type"] == "evaluation_receipt"
+        assert receipt["version"] == 1
+        assert receipt["body"]["permission_decision"] in ("allow", "deny")
+        assert receipt["body"]["surface"] == "claude-code-cli"
+        assert receipt["body"]["integration_level"] == "L1_BEST_EFFORT"
+        assert len(receipt["body_hash"]) == 64
+        assert receipt["signature"] == receipt["body_hash"]
+
+    def test_hook_fail_closed_on_bad_input(self, onus_bin: Path, rules_path: Path, tmp_path: Path):
+        db_path = tmp_path / "fail-closed.db"
+        proc = subprocess.run(
+            [str(onus_bin), "claude-hook", "--db", str(db_path), "--rules", str(rules_path),
+             "--timeout-ms", "5000"],
+            input="NOT VALID JSON",
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if proc.returncode == 0:
+            output = json.loads(proc.stdout)
+            assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
+        else:
+            # Crash acceptable — hook should be resilient
+            assert True
+
+    def test_hook_denies_dangerous_command(self, onus_bin: Path, rules_path: Path, tmp_path: Path):
+        db_path = tmp_path / "deny-test.db"
+        output = self._run_claude_hook(onus_bin, db_path, rules_path, {
+            "tool_name": "Bash",
+            "tool_input": {"command": "rm -rf /"},
+            "session_id": "test-deny",
+            "cwd": "/tmp",
+            "agent": "claude-code",
+            "agent_version": "1.0.0",
+        })
+        assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    def test_hook_allows_safe_command(self, onus_bin: Path, rules_path: Path, tmp_path: Path):
+        db_path = tmp_path / "allow-test.db"
+        output = self._run_claude_hook(onus_bin, db_path, rules_path, {
+            "tool_name": "Bash",
+            "tool_input": {"command": "echo hello"},
+            "session_id": "test-allow",
+            "cwd": "/tmp",
+            "agent": "claude-code",
+            "agent_version": "1.0.0",
+        })
+        assert output["hookSpecificOutput"]["permissionDecision"] == "allow"

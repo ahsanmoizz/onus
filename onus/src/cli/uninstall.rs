@@ -7,10 +7,18 @@ pub struct UninstallArgs {
     /// Also delete the audit trail, rules, and config directory
     #[arg(long)]
     pub purge: bool,
+
+    /// Remove only the Claude Code CLI hook
+    #[arg(long)]
+    pub claude: bool,
 }
 
 /// Run the uninstall command.
 pub fn run(args: UninstallArgs) -> anyhow::Result<()> {
+    if args.claude {
+        return crate::cli::setup::run_uninstall_claude();
+    }
+
     let data_dir = crate::data_dir();
     let config_dir = crate::config_dir();
 

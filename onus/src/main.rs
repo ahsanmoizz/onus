@@ -26,6 +26,8 @@ fn main() -> anyhow::Result<()> {
         onus_core::cli::Commands::Session(args) => onus_core::cli::session::run(args)?,
         onus_core::cli::Commands::Rules(args) => onus_core::cli::rules::run(args)?,
         onus_core::cli::Commands::Upgrade => onus_core::cli::upgrade::run()?,
+        onus_core::cli::Commands::Doctor(args) => onus_core::cli::doctor::run(args)?,
+        onus_core::cli::Commands::Setup(args) => onus_core::cli::setup::run(args)?,
         onus_core::cli::Commands::Uninstall(args) => onus_core::cli::uninstall::run(args)?,
         onus_core::cli::Commands::McpProxy(args) => onus_core::cli::mcp_proxy::run(args)?,
         onus_core::cli::Commands::Shell(args) => onus_core::cli::shell::run(args)?,

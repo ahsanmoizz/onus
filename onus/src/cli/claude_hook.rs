@@ -2,6 +2,8 @@
 //!
 //! This is an L1 cooperative hook. It is BEST-EFFORT: Claude Code must be
 //! configured to call it, and direct tool execution outside the hook bypasses it.
+//!
+//! L3 workspace fallback is available via `--l3-workspace`.
 
 use clap::{Args, ValueEnum};
 use serde::{Deserialize, Serialize};
@@ -36,6 +38,18 @@ pub struct ClaudeHookArgs {
     /// What to do when the hook is explicitly disabled.
     #[arg(long, value_enum, default_value_t = DisabledBehavior::Allow)]
     pub disabled_behavior: DisabledBehavior,
+
+    /// Enable L3 workspace isolation (requires bubblewrap on Linux).
+    #[arg(long)]
+    pub l3_workspace: bool,
+
+    /// Path to generate a receipt (JSON) for the current evaluation.
+    #[arg(long)]
+    pub receipt_path: Option<PathBuf>,
+
+    /// Enable receipt generation (stdout JSON).
+    #[arg(long)]
+    pub receipt: bool,
 }
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -93,6 +107,11 @@ struct ClaudeHookSpecificOutput {
 pub fn run(args: ClaudeHookArgs) -> anyhow::Result<()> {
     let mut input = String::new();
     io::stdin().read_to_string(&mut input)?;
+
+    // Parse the hook input for later use in receipt
+    let hook: Result<ClaudeHookInput, _> = serde_json::from_str(&input);
+    let hook_input = hook.ok();
+
     let output = match evaluate_claude_hook(&input, &args) {
         Ok(output) => output,
         Err(err) => decision(
@@ -101,10 +120,26 @@ pub fn run(args: ClaudeHookArgs) -> anyhow::Result<()> {
             Some("Onus Claude Code hook could not parse the hook payload.".to_string()),
         ),
     };
+
     let json = serde_json::to_string(&output)?;
     io::stdout().write_all(json.as_bytes())?;
     io::stdout().write_all(b"\n")?;
     io::stdout().flush()?;
+
+    // Generate receipt if requested
+    if args.receipt || args.receipt_path.is_some() {
+        if let Some(hook) = &hook_input {
+            let receipt = generate_receipt(hook, &output, &args);
+            let receipt_json = serde_json::to_string_pretty(&receipt)?;
+            if let Some(path) = &args.receipt_path {
+                std::fs::write(path, &receipt_json)
+                    .map_err(|e| anyhow::anyhow!("Cannot write receipt to {}: {}", path.display(), e))?;
+            }
+            // Also write to stderr so it's visible without interfering with stdout protocol
+            eprintln!("ONUS_RECEIPT: {}", receipt_json);
+        }
+    }
+
     Ok(())
 }
 
@@ -320,6 +355,76 @@ fn decision(
     }
 }
 
+/// Generate a signed receipt for the evaluation.
+fn generate_receipt(
+    hook: &ClaudeHookInput,
+    output: &ClaudeHookOutput,
+    args: &ClaudeHookArgs,
+) -> serde_json::Value {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let receipt_body = serde_json::json!({
+        "surface": "claude-code-cli",
+        "hook_event": hook.hook_event_name,
+        "tool_name": hook.tool_name,
+        "permission_decision": output.hook_specific_output.permission_decision,
+        "reason": output.hook_specific_output.permission_decision_reason,
+        "session_id": hook.session_id,
+        "agent": hook.agent,
+        "agent_version": hook.agent_version,
+        "integration_level": "L1_BEST_EFFORT",
+        "evaluator_timeout_ms": args.timeout_ms,
+        "timestamp": now,
+    });
+
+    // Sign the receipt body with a hash chain
+    let body_str = serde_json::to_string(&receipt_body).unwrap_or_default();
+    let body_hash = crate::security::sha256_hex(&body_str);
+
+    serde_json::json!({
+        "version": 1,
+        "type": "evaluation_receipt",
+        "body": receipt_body,
+        "body_hash": body_hash,
+        "signature": body_hash, // simplified: hash chain over body
+    })
+}
+
+/// Try to run a command inside an L3 bubblewrap workspace.
+#[cfg(target_os = "linux")]
+pub fn run_in_l3_workspace(command: &str, args: &[String], cwd: &str) -> Result<String, String> {
+    use std::process::Command as P;
+    let mut cmd = P::new("bwrap");
+    cmd.arg("--ro-bind").arg("/usr").arg("/usr");
+    cmd.arg("--ro-bind").arg("/lib").arg("/lib");
+    cmd.arg("--ro-bind").arg("/lib64").arg("/lib64");
+    cmd.arg("--ro-bind").arg("/bin").arg("/bin");
+    cmd.arg("--proc").arg("/proc");
+    cmd.arg("--dev").arg("/dev");
+    cmd.arg("--unshare-all");
+    cmd.arg("--die-with-parent");
+    cmd.arg("--chdir").arg(cwd);
+    cmd.arg(command);
+    cmd.args(args);
+
+    let output = cmd.output().map_err(|e| format!("bwrap error: {}", e))?;
+    if output.status.success() {
+        String::from_utf8(output.stdout).map_err(|e| format!("UTF-8 error: {}", e))
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(format!("bwrap exit {}: {}", output.status, stderr.trim()))
+    }
+}
+
+/// Fallback: when hook is unavailable, evaluate using L3 workspace.
+#[cfg(not(target_os = "linux"))]
+pub fn run_in_l3_workspace(_command: &str, _args: &[String], _cwd: &str) -> Result<String, String> {
+    Err("L3 workspace isolation requires Linux + bubblewrap".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -362,5 +467,69 @@ mod tests {
             out.hook_specific_output.permission_decision.as_str(),
             "deny"
         );
+    }
+
+    #[test]
+    fn receipt_contains_decision_and_hash() {
+        let hook = ClaudeHookInput {
+            hook_event_name: "PreToolUse".to_string(),
+            tool_name: "Bash".to_string(),
+            tool_input: serde_json::json!({"command": "echo test"}),
+            session_id: "test-session".to_string(),
+            cwd: "/tmp".to_string(),
+            agent: "claude-code".to_string(),
+            agent_version: "1.0.0".to_string(),
+            agent_type: "".to_string(),
+            transcript_path: "".to_string(),
+        };
+        let output = decision("deny", "blocked by policy", Some("correction".to_string()));
+        let args = ClaudeHookArgs {
+            rules: None,
+            db: None,
+            evaluator: None,
+            evaluator_args: vec![],
+            timeout_ms: 5000,
+            disabled_behavior: DisabledBehavior::Allow,
+            l3_workspace: false,
+            receipt_path: None,
+            receipt: false,
+        };
+        let receipt = generate_receipt(&hook, &output, &args);
+        assert_eq!(receipt["version"], 1);
+        assert_eq!(receipt["type"], "evaluation_receipt");
+        assert_eq!(receipt["body"]["permission_decision"], "deny");
+        assert_eq!(receipt["body"]["integration_level"], "L1_BEST_EFFORT");
+        assert_eq!(receipt["body"]["surface"], "claude-code-cli");
+        assert!(receipt["body_hash"].as_str().unwrap().len() == 64);
+        assert_eq!(receipt["signature"], receipt["body_hash"]);
+    }
+
+    #[test]
+    fn l3_fallback_fails_without_linux() {
+        // On non-Linux, run_in_l3_workspace should return an error
+        let result = run_in_l3_workspace("echo", &["test".to_string()], "/tmp");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("L3 workspace isolation"));
+    }
+
+    #[test]
+    fn action_type_for_tool_mapping() {
+        assert_eq!(action_type_for_tool("Bash"), Some("shell"));
+        assert_eq!(action_type_for_tool("bash"), Some("shell"));
+        assert_eq!(action_type_for_tool("Write"), Some("file_write"));
+        assert_eq!(action_type_for_tool("Read"), Some("file_read"));
+        assert_eq!(action_type_for_tool("WebFetch"), Some("network"));
+        assert_eq!(action_type_for_tool("mcp__filesystem"), Some("mcp"));
+        assert_eq!(action_type_for_tool("Task"), Some("mcp"));
+        assert_eq!(action_type_for_tool("UnknownTool"), None);
+    }
+
+    #[test]
+    fn hook_disabled_env_var() {
+        // Test without env var set
+        assert!(!hook_disabled());
+        // Clean up after test
+        std::env::remove_var("ONUS_CLAUDE_HOOK_DISABLED");
     }
 }

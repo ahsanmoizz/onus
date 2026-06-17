@@ -4,6 +4,7 @@ pub mod claude_hook;
 pub mod contract;
 pub mod daemon_cmd;
 pub mod dashboard;
+pub mod doctor;
 pub mod evaluate;
 pub mod intake;
 pub mod log_cmd;
@@ -13,6 +14,7 @@ pub mod session;
 pub mod shell;
 pub mod status;
 pub mod uninstall;
+pub mod setup;
 pub mod upgrade;
 pub mod verify;
 pub mod workspace;
@@ -69,6 +71,12 @@ pub enum Commands {
 
     /// Manage safety rules
     Rules(rules::RulesArgs),
+
+    /// Diagnose integration surface health
+    Doctor(doctor::DoctorArgs),
+
+    /// Install Onus hooks for integration surfaces (Claude Code, etc.)
+    Setup(setup::SetupArgs),
 
     /// Download and install the latest version of Onus
     Upgrade,
