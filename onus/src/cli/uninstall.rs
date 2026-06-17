@@ -15,6 +15,10 @@ pub struct UninstallArgs {
     /// Remove only the OpenAI Codex CLI MCP proxy entry
     #[arg(long)]
     pub codex: bool,
+
+    /// Remove only the Google Antigravity extension and MCP config
+    #[arg(long)]
+    pub antigravity: bool,
 }
 
 /// Run the uninstall command.
@@ -24,6 +28,9 @@ pub fn run(args: UninstallArgs) -> anyhow::Result<()> {
     }
     if args.codex {
         return crate::cli::codex::uninstall_mcp_hook();
+    }
+    if args.antigravity {
+        return crate::cli::antigravity::run_uninstall();
     }
 
     let data_dir = crate::data_dir();

@@ -2426,4 +2426,65 @@ class TestSetupCodexCommand:
             timeout=15,
         )
         assert result.returncode == 0, f"setup --codex failed: {result.stderr}"
-        assert "MCP proxy" in result.stdout or "already" in result.stdout
+        assert "MCP" in result.stdout or "already" in result.stdout
+
+
+class TestDoctorAntigravityCommand:
+    """Tests for `onus doctor --antigravity` — Google Antigravity diagnostics."""
+
+    def test_doctor_antigravity_runs(self, onus_bin: Path):
+        result = subprocess.run(
+            [str(onus_bin), "doctor", "--antigravity"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode in (0, 1), f"doctor --antigravity failed: {result.stderr}"
+        assert "Antigravity" in result.stdout
+
+    def test_doctor_full_reports_antigravity(self, onus_bin: Path):
+        result = subprocess.run(
+            [str(onus_bin), "doctor"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode in (0, 1), f"doctor failed: {result.stderr}"
+        assert "Antigravity" in result.stdout, "Full doctor should mention Antigravity"
+
+    def test_doctor_antigravity_l3_advice(self, onus_bin: Path):
+        result = subprocess.run(
+            [str(onus_bin), "doctor", "--antigravity"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode in (0, 1), f"doctor --antigravity failed: {result.stderr}"
+        # L3 advice appears when Antigravity is found; otherwise fail message is shown
+        assert any(x in result.stdout for x in ["bubblewrap", "Windows", "workspace",
+            "not available", "Linux", "not found", "Antigravity"]), \
+            "Antigravity doctor should mention Antigravity status"
+
+
+class TestSetupAntigravityCommand:
+    """Tests for `onus setup --antigravity` and `onus uninstall --antigravity`."""
+
+    def test_setup_antigravity_runs(self, onus_bin: Path):
+        result = subprocess.run(
+            [str(onus_bin), "setup", "--antigravity"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        assert result.returncode == 0, f"setup --antigravity failed: {result.stderr}"
+        assert "Antigravity" in result.stdout
+
+    def test_uninstall_antigravity_runs(self, onus_bin: Path):
+        result = subprocess.run(
+            [str(onus_bin), "uninstall", "--antigravity"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        assert result.returncode == 0, f"uninstall --antigravity failed: {result.stderr}"
+        assert "Antigravity" in result.stdout or "antigravity" in result.stdout

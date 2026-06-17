@@ -15,6 +15,10 @@ pub struct DoctorArgs {
     /// Run only OpenAI Codex CLI checks
     #[arg(long)]
     pub codex: bool,
+
+    /// Run only Google Antigravity checks
+    #[arg(long)]
+    pub antigravity: bool,
 }
 
 /// Run the main `onus doctor` command — check everything.
@@ -24,6 +28,9 @@ pub fn run(args: DoctorArgs) -> anyhow::Result<()> {
     }
     if args.codex {
         return run_codex();
+    }
+    if args.antigravity {
+        return run_antigravity();
     }
     let mut ok_count = 0u32;
     let mut warn_count = 0u32;
@@ -115,6 +122,61 @@ pub fn run(args: DoctorArgs) -> anyhow::Result<()> {
             // Not installed — not a failure, just informational
             log_ok("OpenAI Codex CLI", "not installed".to_string());
             ok_count += 1;
+        }
+    }
+
+    // ── Google Antigravity ─────────────────────────────────────────────────
+    match crate::cli::antigravity::find_antigravity() {
+        crate::cli::antigravity::AntigravityCheck::Available { version, path } => {
+            log_ok("Google Antigravity", format!("v{} at {}", version, path.display()));
+            ok_count += 1;
+
+            // Check extension
+            match crate::cli::antigravity::check_extension_installed(&path) {
+                crate::cli::antigravity::ExtensionCheck::Installed { path: ext_path, version: ext_ver } => {
+                    log_ok("Antigravity extension", format!("onus-firewall v{} at {}", ext_ver, ext_path.display()));
+                    ok_count += 1;
+                }
+                crate::cli::antigravity::ExtensionCheck::NotInstalled => {
+                    log_warn("Antigravity extension", "onus-firewall not installed".to_string());
+                    warn_count += 1;
+                }
+                crate::cli::antigravity::ExtensionCheck::Error(e) => {
+                    log_warn("Antigravity extension", format!("check error: {}", e));
+                    warn_count += 1;
+                }
+            }
+
+            // Check MCP config
+            match crate::cli::antigravity::check_mcp_config(&path) {
+                crate::cli::antigravity::McpConfigCheck::Configured { server_name } => {
+                    log_ok("Antigravity MCP proxy", format!("'{}' configured", server_name));
+                    ok_count += 1;
+                }
+                crate::cli::antigravity::McpConfigCheck::NotFound => {
+                    log_warn("Antigravity MCP proxy", "not configured".to_string());
+                    warn_count += 1;
+                }
+                crate::cli::antigravity::McpConfigCheck::Error(e) => {
+                    log_warn("Antigravity MCP proxy", format!("check error: {}", e));
+                    warn_count += 1;
+                }
+            }
+
+            // L3 advice
+            let l3 = crate::cli::antigravity::l3_workspace_advice();
+            if !l3.is_empty() {
+                log_ok("Antigravity L3 workspace", l3);
+                ok_count += 1;
+            }
+        }
+        crate::cli::antigravity::AntigravityCheck::NotFound => {
+            log_ok("Google Antigravity", "not installed".to_string());
+            ok_count += 1;
+        }
+        crate::cli::antigravity::AntigravityCheck::Error(e) => {
+            log_fail("Google Antigravity", format!("check error: {}", e));
+            fail_count += 1;
         }
     }
 
@@ -230,6 +292,58 @@ pub fn run_codex() -> anyhow::Result<()> {
             println!("\n  Install it with:");
             println!("    pip install openai-codex");
             println!("  Or visit: https://developers.openai.com/codex");
+        }
+    }
+
+    Ok(())
+}
+
+/// Run only the Google Antigravity checks.
+pub fn run_antigravity() -> anyhow::Result<()> {
+    println!("Onus Doctor — Google Antigravity\n");
+
+    match crate::cli::antigravity::find_antigravity() {
+        crate::cli::antigravity::AntigravityCheck::Available { version, path } => {
+            log_ok("Binary found", format!("Antigravity v{} at {}", version, path.display()));
+
+            match crate::cli::antigravity::check_extension_installed(&path) {
+                crate::cli::antigravity::ExtensionCheck::Installed { path: ext_path, version: ext_ver } => {
+                    log_ok("Extension", format!("onus-firewall v{} at {}", ext_ver, ext_path.display()));
+                }
+                crate::cli::antigravity::ExtensionCheck::NotInstalled => {
+                    log_warn("Extension", "onus-firewall not installed".to_string());
+                    println!("\n  Run `onus setup --antigravity` for installation instructions.");
+                }
+                crate::cli::antigravity::ExtensionCheck::Error(e) => {
+                    log_fail("Extension check", format!("error: {}", e));
+                }
+            }
+
+            match crate::cli::antigravity::check_mcp_config(&path) {
+                crate::cli::antigravity::McpConfigCheck::Configured { server_name } => {
+                    log_ok("MCP proxy", format!("'{}' configured", server_name));
+                }
+                crate::cli::antigravity::McpConfigCheck::NotFound => {
+                    log_warn("MCP proxy", "Onus not configured as MCP server".to_string());
+                }
+                crate::cli::antigravity::McpConfigCheck::Error(e) => {
+                    log_fail("MCP config", format!("error: {}", e));
+                }
+            }
+
+            // L3 workspace advice
+            let l3 = crate::cli::antigravity::l3_workspace_advice();
+            if !l3.is_empty() {
+                println!();
+                log_ok("L3 workspace", l3);
+            }
+        }
+        crate::cli::antigravity::AntigravityCheck::NotFound => {
+            log_fail("Binary", "Antigravity not found on PATH".to_string());
+            println!("\n  Install it from: https://github.com/google/antigravity");
+        }
+        crate::cli::antigravity::AntigravityCheck::Error(e) => {
+            log_fail("Antigravity", format!("check error: {}", e));
         }
     }
 
@@ -495,7 +609,7 @@ mod tests {
 
     #[test]
     fn test_doctor_runs_without_panic() {
-        let args = DoctorArgs { claude: false, codex: false };
+        let args = DoctorArgs { claude: false, codex: false, antigravity: false };
         let _ = run(args);
         let _ = run_claude();
         let _ = run_codex();

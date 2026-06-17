@@ -1,3 +1,4 @@
+pub mod antigravity;
 pub mod approvals;
 pub mod authority;
 pub mod claude_hook;

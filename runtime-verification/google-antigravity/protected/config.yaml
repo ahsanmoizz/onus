@@ -1,0 +1,6 @@
+# Protected configuration fixture
+db:
+  host: internal.db.local
+  port: 5432
+admin:
+  enabled: false

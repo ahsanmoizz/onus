@@ -17,6 +17,10 @@ pub struct SetupArgs {
     #[arg(long)]
     pub codex: bool,
 
+    /// Set up only the Google Antigravity extension and MCP proxy
+    #[arg(long)]
+    pub antigravity: bool,
+
     /// Set up only the VS Code extension
     #[arg(long)]
     pub vscode: bool,
@@ -30,6 +34,9 @@ pub fn run(args: SetupArgs) -> anyhow::Result<()> {
     }
     if args.codex {
         return crate::cli::codex::install_mcp_hook();
+    }
+    if args.antigravity {
+        return crate::cli::antigravity::run_setup();
     }
     if args.vscode {
         println!("VS Code setup is not yet implemented as a CLI command.");
@@ -61,6 +68,9 @@ pub fn run(args: SetupArgs) -> anyhow::Result<()> {
             DetectedSurface::Codex { path } => {
                 println!("  Found OpenAI Codex CLI at: {}", path.display());
             }
+            DetectedSurface::Antigravity { path } => {
+                println!("  Found Google Antigravity at: {}", path.display());
+            }
             DetectedSurface::VSCode => {
                 println!("  Found VS Code");
             }
@@ -74,6 +84,9 @@ pub fn run(args: SetupArgs) -> anyhow::Result<()> {
             DetectedSurface::Codex { .. } => {
                 println!("  Codex CLI: configuring MCP proxy...");
                 crate::cli::codex::install_mcp_hook()?;
+            }
+            DetectedSurface::Antigravity { .. } => {
+                crate::cli::antigravity::run_setup()?;
             }
             DetectedSurface::VSCode => {
                 println!("  VS Code: run `onus setup vscode` for VS Code integration.");
@@ -115,6 +128,7 @@ pub fn run_uninstall_claude() -> anyhow::Result<()> {
 pub enum DetectedSurface {
     ClaudeCode { path: PathBuf },
     Codex { path: PathBuf },
+    Antigravity { path: PathBuf },
     VSCode,
 }
 
@@ -131,6 +145,14 @@ pub fn detect_surfaces() -> Vec<DetectedSurface> {
         if output.status.success() {
             surfaces.push(DetectedSurface::VSCode);
         }
+    }
+
+    // Check for Google Antigravity
+    match crate::cli::antigravity::find_antigravity() {
+        crate::cli::antigravity::AntigravityCheck::Available { path, .. } => {
+            surfaces.push(DetectedSurface::Antigravity { path });
+        }
+        _ => {}
     }
 
     surfaces
