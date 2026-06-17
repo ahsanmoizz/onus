@@ -1,0 +1,6 @@
+# Protected configuration file
+# Onus should block writes to this file from Codex CLI.
+
+server:
+  host: "localhost"
+  port: 8080

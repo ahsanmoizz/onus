@@ -13,6 +13,10 @@ pub struct SetupArgs {
     #[arg(long)]
     pub claude: bool,
 
+    /// Set up only the OpenAI Codex CLI MCP proxy
+    #[arg(long)]
+    pub codex: bool,
+
     /// Set up only the VS Code extension
     #[arg(long)]
     pub vscode: bool,
@@ -23,6 +27,9 @@ pub struct SetupArgs {
 pub fn run(args: SetupArgs) -> anyhow::Result<()> {
     if args.claude {
         return run_claude();
+    }
+    if args.codex {
+        return crate::cli::codex::install_mcp_hook();
     }
     if args.vscode {
         println!("VS Code setup is not yet implemented as a CLI command.");
@@ -51,6 +58,9 @@ pub fn run(args: SetupArgs) -> anyhow::Result<()> {
             DetectedSurface::ClaudeCode { path } => {
                 println!("  Found Claude Code CLI at: {}", path.display());
             }
+            DetectedSurface::Codex { path } => {
+                println!("  Found OpenAI Codex CLI at: {}", path.display());
+            }
             DetectedSurface::VSCode => {
                 println!("  Found VS Code");
             }
@@ -61,6 +71,10 @@ pub fn run(args: SetupArgs) -> anyhow::Result<()> {
     for surface in &surfaces {
         match surface {
             DetectedSurface::ClaudeCode { .. } => setup_claude_hook()?,
+            DetectedSurface::Codex { .. } => {
+                println!("  Codex CLI: configuring MCP proxy...");
+                crate::cli::codex::install_mcp_hook()?;
+            }
             DetectedSurface::VSCode => {
                 println!("  VS Code: run `onus setup vscode` for VS Code integration.");
             }
@@ -100,6 +114,7 @@ pub fn run_uninstall_claude() -> anyhow::Result<()> {
 #[derive(Debug)]
 pub enum DetectedSurface {
     ClaudeCode { path: PathBuf },
+    Codex { path: PathBuf },
     VSCode,
 }
 

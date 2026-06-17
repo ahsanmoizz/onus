@@ -1,6 +1,7 @@
 pub mod approvals;
 pub mod authority;
 pub mod claude_hook;
+pub mod codex;
 pub mod contract;
 pub mod daemon_cmd;
 pub mod dashboard;

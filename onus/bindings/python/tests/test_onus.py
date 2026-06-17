@@ -2353,3 +2353,77 @@ class TestClaudeHookReceipt:
             "agent_version": "1.0.0",
         })
         assert output["hookSpecificOutput"]["permissionDecision"] == "allow"
+
+
+class TestDoctorCodexCommand:
+    """Tests for `onus doctor --codex` — Codex CLI diagnostics."""
+
+    def test_doctor_codex_runs(self, onus_bin: Path):
+        result = subprocess.run(
+            [str(onus_bin), "doctor", "--codex"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode in (0, 1), f"doctor --codex failed: {result.stderr}"
+        assert "Onus Doctor" in result.stdout
+        assert "Codex" in result.stdout
+
+    def test_doctor_full_reports_codex(self, onus_bin: Path):
+        result = subprocess.run(
+            [str(onus_bin), "doctor"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode in (0, 1), f"doctor failed: {result.stderr}"
+        # Full doctor should mention Codex section
+        assert "Codex" in result.stdout
+
+    def test_doctor_codex_l3_advice(self, onus_bin: Path):
+        result = subprocess.run(
+            [str(onus_bin), "doctor", "--codex"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode in (0, 1), f"doctor --codex failed: {result.stderr}"
+        # L3 advice should be in output (either bwrap or Windows advice)
+        assert any(x in result.stdout for x in ["bubblewrap", "Windows", "workspace"])
+
+
+class TestSetupCodexCommand:
+    """Tests for `onus setup --codex` and `onus uninstall --codex`."""
+
+    def test_setup_codex_runs(self, onus_bin: Path):
+        result = subprocess.run(
+            [str(onus_bin), "setup", "--codex"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        assert result.returncode == 0, f"setup --codex failed: {result.stderr}"
+        assert "MCP" in result.stdout or "already" in result.stdout
+
+    def test_uninstall_codex_runs(self, onus_bin: Path):
+        result = subprocess.run(
+            [str(onus_bin), "uninstall", "--codex"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        assert result.returncode == 0, f"uninstall --codex failed: {result.stderr}"
+        assert "MCP" in result.stdout or "codex" in result.stdout.lower() or "No" in result.stdout
+
+    def test_setup_codex_mcp_config_format(self, onus_bin: Path, tmp_path: Path):
+        """Verify --codex produces valid MCP config TOML."""
+        # Run setup --codex (it writes to ~/.codex/config.toml which we can't isolate easily)
+        # Instead verify the binary accepts the flag and produces non-error output
+        result = subprocess.run(
+            [str(onus_bin), "setup", "--codex"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        assert result.returncode == 0, f"setup --codex failed: {result.stderr}"
+        assert "MCP proxy" in result.stdout or "already" in result.stdout

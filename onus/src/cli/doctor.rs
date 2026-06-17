@@ -11,12 +11,19 @@ pub struct DoctorArgs {
     /// Run only Claude Code CLI checks
     #[arg(long)]
     pub claude: bool,
+
+    /// Run only OpenAI Codex CLI checks
+    #[arg(long)]
+    pub codex: bool,
 }
 
 /// Run the main `onus doctor` command — check everything.
 pub fn run(args: DoctorArgs) -> anyhow::Result<()> {
     if args.claude {
         return run_claude();
+    }
+    if args.codex {
+        return run_codex();
     }
     let mut ok_count = 0u32;
     let mut warn_count = 0u32;
@@ -79,6 +86,35 @@ pub fn run(args: DoctorArgs) -> anyhow::Result<()> {
         ClaudeCliCheck::Error(e) => {
             log_fail("Claude Code CLI", format!("error: {}", e));
             fail_count += 1;
+        }
+    }
+
+    // ── OpenAI Codex CLI ─────────────────────────────────────────────────
+    match crate::cli::codex::find_codex_cli() {
+        crate::cli::codex::CodexCliCheck::Available { version, path } => {
+            log_ok("OpenAI Codex CLI", format!("v{} at {}", version, path.display()));
+            ok_count += 1;
+
+            // Check MCP config
+            match crate::cli::codex::check_mcp_config() {
+                crate::cli::codex::McpConfigCheck::Configured { server_name, mode } => {
+                    log_ok("Codex MCP config", format!("server '{}' ({})", server_name, mode));
+                    ok_count += 1;
+                }
+                crate::cli::codex::McpConfigCheck::NotFound => {
+                    log_warn("Codex MCP config", "Onus not configured — run `onus setup --codex`".to_string());
+                    warn_count += 1;
+                }
+                crate::cli::codex::McpConfigCheck::Error(e) => {
+                    log_warn("Codex MCP config", format!("check error: {}", e));
+                    warn_count += 1;
+                }
+            }
+        }
+        crate::cli::codex::CodexCliCheck::NotFound => {
+            // Not installed — not a failure, just informational
+            log_ok("OpenAI Codex CLI", "not installed".to_string());
+            ok_count += 1;
         }
     }
 
@@ -155,6 +191,45 @@ pub fn run_claude() -> anyhow::Result<()> {
         }
         ClaudeCliCheck::Error(e) => {
             log_fail("Binary", format!("check error: {}", e));
+        }
+    }
+
+    Ok(())
+}
+
+/// Run only the OpenAI Codex CLI checks.
+pub fn run_codex() -> anyhow::Result<()> {
+    println!("Onus Doctor — OpenAI Codex CLI\n");
+
+    match crate::cli::codex::find_codex_cli() {
+        crate::cli::codex::CodexCliCheck::Available { version, path } => {
+            log_ok("Binary found", format!("Codex CLI v{} at {}", version, path.display()));
+
+            match crate::cli::codex::check_mcp_config() {
+                crate::cli::codex::McpConfigCheck::Configured { server_name, mode } => {
+                    log_ok("MCP config", format!("server '{}' ({})", server_name, mode));
+                }
+                crate::cli::codex::McpConfigCheck::NotFound => {
+                    log_warn("MCP config", "Onus MCP proxy not configured. Run `onus setup --codex`".to_string());
+                    println!("\n  Run `onus setup --codex` to configure the MCP proxy.");
+                }
+                crate::cli::codex::McpConfigCheck::Error(e) => {
+                    log_fail("MCP config", format!("error: {}", e));
+                }
+            }
+
+            // L3 workspace advice
+            let l3 = crate::cli::codex::l3_workspace_advice();
+            if !l3.is_empty() {
+                println!();
+                log_ok("L3 workspace", l3);
+            }
+        }
+        crate::cli::codex::CodexCliCheck::NotFound => {
+            log_fail("Binary", "Codex CLI not found on PATH".to_string());
+            println!("\n  Install it with:");
+            println!("    pip install openai-codex");
+            println!("  Or visit: https://developers.openai.com/codex");
         }
     }
 
@@ -420,9 +495,10 @@ mod tests {
 
     #[test]
     fn test_doctor_runs_without_panic() {
-        let args = DoctorArgs { claude: false };
+        let args = DoctorArgs { claude: false, codex: false };
         let _ = run(args);
         let _ = run_claude();
+        let _ = run_codex();
     }
 
     #[test]

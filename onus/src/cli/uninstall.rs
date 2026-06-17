@@ -11,12 +11,19 @@ pub struct UninstallArgs {
     /// Remove only the Claude Code CLI hook
     #[arg(long)]
     pub claude: bool,
+
+    /// Remove only the OpenAI Codex CLI MCP proxy entry
+    #[arg(long)]
+    pub codex: bool,
 }
 
 /// Run the uninstall command.
 pub fn run(args: UninstallArgs) -> anyhow::Result<()> {
     if args.claude {
         return crate::cli::setup::run_uninstall_claude();
+    }
+    if args.codex {
+        return crate::cli::codex::uninstall_mcp_hook();
     }
 
     let data_dir = crate::data_dir();
