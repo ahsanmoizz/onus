@@ -7,15 +7,31 @@ __pycache__/
 # Claude Code local state
 .claude/
 
-# Local runtime artifacts
+# Onus temporary runtime state
+.onus/
+reality_demo_workspace/
+
+# Dependency directories
+node_modules/
+
+# VS Code extension test downloads
+.vscode-test/
+onus/bindings/vscode/.vscode-test/
+
+# Runtime verification generated evidence
+runtime-verification/**/evidence/*
+!runtime-verification/**/evidence/.gitkeep
+
+# Runtime verification sensitive fixtures (populate from template)
+runtime-verification/**/secrets/.env
+
+# Local databases
 *.db
 *.db-shm
 *.db-wal
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
-*.log
 
-# Onus temporary runtime state
-.onus/
-reality_demo_workspace/
+# Logs
+*.log
