@@ -1,0 +1,5 @@
+module.exports = {
+    ui: 'tdd',
+    timeout: 10000,
+    color: true,
+};
