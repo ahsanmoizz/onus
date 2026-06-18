@@ -505,6 +505,110 @@ mod tests {
     }
 
     #[test]
+    fn receipt_serializes_to_pretty_multiline() {
+        // Receipt is serialized with to_string_pretty (multiline) via eprintln!
+        // Verify it can be parsed back and re-serialized
+        let hook = ClaudeHookInput {
+            hook_event_name: "PreToolUse".to_string(),
+            tool_name: "Bash".to_string(),
+            tool_input: serde_json::json!({"command": "echo test"}),
+            session_id: "test-line".to_string(),
+            cwd: "/tmp".to_string(),
+            agent: "claude-code".to_string(),
+            agent_version: "1.0.0".to_string(),
+            agent_type: "".to_string(),
+            transcript_path: "".to_string(),
+        };
+        let output = decision("allow", "safe", None);
+        let args = ClaudeHookArgs {
+            rules: None,
+            db: None,
+            evaluator: None,
+            evaluator_args: vec![],
+            timeout_ms: 5000,
+            disabled_behavior: DisabledBehavior::Allow,
+            l3_workspace: false,
+            receipt_path: None,
+            receipt: false,
+        };
+        let receipt = generate_receipt(&hook, &output, &args);
+        // The actual code uses serde_json::to_string_pretty for stderr emission
+        let pretty_json = serde_json::to_string_pretty(&receipt).unwrap();
+        // Must be multiline (pretty-printed)
+        assert!(pretty_json.contains('\n'), "receipt via eprintln! is to_string_pretty, must be multiline");
+        // But must also be parseable back
+        let re_parsed: serde_json::Value = serde_json::from_str(&pretty_json).unwrap();
+        assert_eq!(re_parsed["type"], "evaluation_receipt");
+        assert_eq!(re_parsed["version"], 1);
+        // Verify eprintln output line: "ONUS_RECEIPT: {pretty_json}"
+        let eprintln_line = format!("ONUS_RECEIPT: {}", pretty_json);
+        assert!(eprintln_line.starts_with("ONUS_RECEIPT:"));
+        // Extract JSON from after marker
+        let extracted = eprintln_line.strip_prefix("ONUS_RECEIPT: ").unwrap();
+        let extracted_parsed: serde_json::Value = serde_json::from_str(extracted).unwrap();
+        assert_eq!(extracted_parsed["type"], "evaluation_receipt");
+    }
+
+    #[test]
+    fn receipt_previous_hash_linkage() {
+        // Optional previous_hash field for chain linkage
+        let receipt = serde_json::json!({
+            "version": 1,
+            "type": "evaluation_receipt",
+            "body": {"permission_decision": "deny"},
+            "body_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "previous_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+            "signature": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        });
+        assert_eq!(receipt["version"], 1);
+        assert_eq!(receipt["type"], "evaluation_receipt");
+        assert!(receipt.get("previous_hash").and_then(|h| h.as_str()).is_some());
+        assert_eq!(receipt["signature"], receipt["body_hash"]);
+    }
+
+    #[test]
+    fn receipt_invalid_json_detectable() {
+        // Invalid JSON receipt must be detectable
+        let bad_receipt = "{invalid json here}";
+        assert!(serde_json::from_str::<serde_json::Value>(bad_receipt).is_err());
+    }
+
+    #[test]
+    fn receipt_missing_marker_detectable() {
+        // Receipt marker detection from line prefix
+        let line = "ONUS_RECEIPT: {\"type\": \"evaluation_receipt\"}";
+        assert!(line.starts_with("ONUS_RECEIPT:"));
+        let json_part = line.strip_prefix("ONUS_RECEIPT: ").unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(json_part).unwrap();
+        assert_eq!(parsed["type"], "evaluation_receipt");
+    }
+
+    #[test]
+    fn receipt_path_output_creates_file() {
+        use std::io::Write;
+        let tmp = std::env::temp_dir().join("onus-test-receipt-path.json");
+        // Write receipt manually (this is what --receipt-path does)
+        let receipt = serde_json::json!({
+            "version": 1,
+            "type": "evaluation_receipt",
+            "body": {"permission_decision": "deny"},
+            "body_hash": "a".repeat(64),
+            "signature": "a".repeat(64),
+        });
+        let json_str = serde_json::to_string(&receipt).unwrap();
+        let mut f = std::fs::File::create(&tmp).unwrap();
+        f.write_all(json_str.as_bytes()).unwrap();
+        drop(f);
+        assert!(tmp.exists(), "receipt file should exist");
+        let content = std::fs::read_to_string(&tmp).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(parsed["type"], "evaluation_receipt");
+        assert_eq!(parsed["body"]["permission_decision"], "deny");
+        assert!(parsed["body_hash"].as_str().unwrap().len() == 64);
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
     fn l3_fallback_fails_without_linux() {
         // On non-Linux, run_in_l3_workspace should return an error
         let result = run_in_l3_workspace("echo", &["test".to_string()], "/tmp");

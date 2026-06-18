@@ -282,7 +282,7 @@ fn setup_claude_hook() -> anyhow::Result<()> {
     println!("  Mode: best_effort");
     println!();
     println!("  To verify: run `onus doctor claude`");
-    println!("  To remove: run `onus uninstall claude`");
+    println!("  To remove: run `onus uninstall --claude`");
 
     Ok(())
 }
@@ -339,6 +339,6 @@ onus setup claude — install Onus hook for Claude Code CLI
 onus setup vscode — install Onus VS Code extension (TBD)
 
 onus uninstall     — remove all Onus hooks
-onus uninstall claude — remove Claude Code hook only"#
+onus uninstall --claude — remove Claude Code hook only"#
         .to_string()
 }

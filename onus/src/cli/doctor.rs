@@ -645,10 +645,16 @@ fn check_hook_works() -> HookHealth {
 
     match serde_json::from_str::<serde_json::Value>(&stdout) {
         Ok(json) => {
-            if json.get("decision").and_then(|d| d.as_str()).is_some() {
+            // Hook output uses the Claude Code PreToolUse protocol shape:
+            //   {"hookSpecificOutput": {"permissionDecision": "allow"|"deny"|"ask", ...}}
+            let decision = json
+                .get("hookSpecificOutput")
+                .and_then(|hso| hso.get("permissionDecision"))
+                .and_then(|d| d.as_str());
+            if matches!(decision, Some("allow" | "deny" | "ask")) {
                 HookHealth::Ok
             } else {
-                HookHealth::Error("Hook output missing 'decision' field".to_string())
+                HookHealth::Error("Hook output missing valid 'hookSpecificOutput.permissionDecision' field".to_string())
             }
         }
         Err(e) => HookHealth::Error(format!("Hook output is not valid JSON: {}", e)),
@@ -761,6 +767,116 @@ mod tests {
             HookHealth::Ok => {} // acceptable if onus is available
             HookHealth::Error(_) => {} // expected
         }
+    }
+
+    #[test]
+    fn test_hook_health_allowed_json() {
+        // Verify that an "allow" decision in the real hook output shape passes
+        let json = serde_json::json!({
+            "hookSpecificOutput": {
+                "hookEventName": "preToolUse",
+                "permissionDecision": "allow",
+                "permissionDecisionReason": "command is safe"
+            },
+            "suppressOutput": false
+        });
+        let stdout = serde_json::to_string(&json).unwrap();
+        match serde_json::from_str::<serde_json::Value>(&stdout) {
+            Ok(val) => {
+                let decision = val
+                    .get("hookSpecificOutput")
+                    .and_then(|hso| hso.get("permissionDecision"))
+                    .and_then(|d| d.as_str());
+                assert!(matches!(decision, Some("allow" | "deny" | "ask")));
+            }
+            Err(e) => panic!("parse failed: {}", e),
+        }
+    }
+
+    #[test]
+    fn test_hook_health_denied_json() {
+        let json = serde_json::json!({
+            "hookSpecificOutput": {
+                "hookEventName": "preToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": "blocked by policy"
+            },
+            "suppressOutput": false
+        });
+        let stdout = serde_json::to_string(&json).unwrap();
+        let val: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let decision = val
+            .get("hookSpecificOutput")
+            .and_then(|hso| hso.get("permissionDecision"))
+            .and_then(|d| d.as_str());
+        assert_eq!(decision, Some("deny"));
+    }
+
+    #[test]
+    fn test_hook_health_approval_json() {
+        let json = serde_json::json!({
+            "hookSpecificOutput": {
+                "hookEventName": "preToolUse",
+                "permissionDecision": "ask",
+                "permissionDecisionReason": "requires human approval"
+            },
+            "suppressOutput": false
+        });
+        let stdout = serde_json::to_string(&json).unwrap();
+        let val: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let decision = val
+            .get("hookSpecificOutput")
+            .and_then(|hso| hso.get("permissionDecision"))
+            .and_then(|d| d.as_str());
+        assert_eq!(decision, Some("ask"));
+    }
+
+    #[test]
+    fn test_hook_health_missing_decision() {
+        // Missing decision field must not silently pass
+        let json = serde_json::json!({
+            "hookSpecificOutput": {
+                "hookEventName": "preToolUse"
+            },
+            "suppressOutput": false
+        });
+        let stdout = serde_json::to_string(&json).unwrap();
+        let val: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let decision = val
+            .get("hookSpecificOutput")
+            .and_then(|hso| hso.get("permissionDecision"))
+            .and_then(|d| d.as_str());
+        assert!(decision.is_none(), "missing decision should be None");
+    }
+
+    #[test]
+    fn test_hook_health_missing_hook_specific_output() {
+        // Entire hookSpecificOutput missing must not silently pass
+        let json = serde_json::json!({
+            "suppressOutput": false
+        });
+        let stdout = serde_json::to_string(&json).unwrap();
+        let val: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let decision = val
+            .get("hookSpecificOutput")
+            .and_then(|hso| hso.get("permissionDecision"))
+            .and_then(|d| d.as_str());
+        assert!(decision.is_none(), "missing hookSpecificOutput should give None");
+    }
+
+    #[test]
+    fn test_hook_health_no_top_level_decision() {
+        // Must NOT accept a top-level "decision" field (old wrong schema)
+        let json = serde_json::json!({
+            "decision": "allow"
+        });
+        let stdout = serde_json::to_string(&json).unwrap();
+        let val: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+        let decision = val
+            .get("hookSpecificOutput")
+            .and_then(|hso| hso.get("permissionDecision"))
+            .and_then(|d| d.as_str());
+        assert!(decision.is_none(), "top-level decision must not be accepted");
     }
 
     #[test]

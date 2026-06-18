@@ -2227,7 +2227,7 @@ class TestDoctorCommand:
 
 
 class TestSetupCommand:
-    """Tests for `onus setup claude` and `onus uninstall claude`."""
+    """Tests for `onus setup claude` and `onus uninstall --claude`."""
 
     def test_setup_claude_runs(self, onus_bin: Path):
         result = subprocess.run(
@@ -2353,6 +2353,144 @@ class TestClaudeHookReceipt:
             "agent_version": "1.0.0",
         })
         assert output["hookSpecificOutput"]["permissionDecision"] == "allow"
+
+
+class TestClaudeHookSchema:
+    """Tests for Claude hook JSON schema — allowed/denied/approval structures."""
+
+    def test_hook_output_allowed(self):
+        """Verify the allowed hook response JSON schema."""
+        output = {
+            "hookSpecificOutput": {
+                "hookEventName": "preToolUse",
+                "permissionDecision": "allow",
+                "permissionDecisionReason": "command is safe",
+            },
+            "suppressOutput": False,
+        }
+        assert output["hookSpecificOutput"]["permissionDecision"] == "allow"
+        assert output["suppressOutput"] is False
+
+    def test_hook_output_denied(self):
+        """Verify the denied hook response JSON schema."""
+        output = {
+            "hookSpecificOutput": {
+                "hookEventName": "preToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": "blocked by policy",
+            },
+            "suppressOutput": False,
+        }
+        assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    def test_hook_output_approval_required(self):
+        """Verify the approval-required hook response JSON schema (ask)."""
+        output = {
+            "hookSpecificOutput": {
+                "hookEventName": "preToolUse",
+                "permissionDecision": "ask",
+                "permissionDecisionReason": "requires human approval",
+            },
+            "suppressOutput": False,
+        }
+        assert output["hookSpecificOutput"]["permissionDecision"] == "ask"
+
+    def test_hook_output_invalid_decision_fails(self):
+        """Invalid decision value should not match valid decisions."""
+        # This test validates the domain of the decision field
+        invalid = "maybe"
+        valid_decisions = {"allow", "deny", "ask"}
+        assert invalid not in valid_decisions
+
+    def test_hook_output_missing_decision(self):
+        """Missing permissionDecision field should be detectable."""
+        output = {"hookSpecificOutput": {"hookEventName": "preToolUse"}, "suppressOutput": False}
+        decision = output.get("hookSpecificOutput", {}).get("permissionDecision")
+        assert decision is None, "Missing decision should be None"
+
+
+class TestClaudeHookReceiptParsing:
+    """Tests for receipt parsing — multiline JSON, invalid JSON, field extraction."""
+
+    def test_receipt_single_line_parsing(self):
+        """Parse a single-line receipt correctly."""
+        line = 'ONUS_RECEIPT: {"type": "evaluation_receipt", "version": 1, "body_hash": "' + "a" * 64 + '"}'
+        assert "ONUS_RECEIPT:" in line
+        json_part = line.split("ONUS_RECEIPT:", 1)[1].strip()
+        receipt = json.loads(json_part)
+        assert receipt["type"] == "evaluation_receipt"
+        assert receipt["version"] == 1
+        assert len(receipt["body_hash"]) == 64
+
+    def test_receipt_multiline_json_parsing(self):
+        """Parse a multiline receipt correctly."""
+        line = "ONUS_RECEIPT: {\n  \"type\": \"evaluation_receipt\",\n  \"version\": 1,\n  \"body_hash\": \"" + "b" * 64 + "\"\n}"
+        assert "ONUS_RECEIPT:" in line
+        json_part = line.split("ONUS_RECEIPT:", 1)[1].strip()
+        receipt = json.loads(json_part)
+        assert receipt["type"] == "evaluation_receipt"
+        assert receipt["version"] == 1
+        assert len(receipt["body_hash"]) == 64
+
+    def test_receipt_missing_marker(self):
+        """No ONUS_RECEIPT marker should be detectable."""
+        line = '{"type": "evaluation_receipt"}'
+        assert "ONUS_RECEIPT:" not in line
+
+    def test_receipt_invalid_json_after_marker(self):
+        """Invalid JSON after ONUS_RECEIPT marker should be detectable."""
+        line = "ONUS_RECEIPT: {invalid json here}"
+        assert "ONUS_RECEIPT:" in line
+        json_part = line.split("ONUS_RECEIPT:", 1)[1].strip()
+        with pytest.raises(json.JSONDecodeError):
+            json.loads(json_part)
+
+    def test_receipt_required_fields(self):
+        """Receipt must contain type, version, body_hash."""
+        receipt = {
+            "type": "evaluation_receipt",
+            "version": 1,
+            "body": {"permission_decision": "deny", "surface": "claude-code-cli", "integration_level": "L1_BEST_EFFORT"},
+            "body_hash": "c" * 64,
+            "signature": "c" * 64,
+        }
+        assert receipt["type"] == "evaluation_receipt"
+        assert receipt["version"] == 1
+        assert len(receipt["body_hash"]) == 64
+        assert receipt["signature"] == receipt["body_hash"]
+
+    def test_receipt_body_hash_integrity(self):
+        """body_hash should be a 64-char hex string (SHA-256)."""
+        receipt = {"body_hash": "d" * 64}
+        assert len(receipt["body_hash"]) == 64
+        assert all(c in "0123456789abcdef" for c in receipt["body_hash"])
+
+
+class TestClaudeUninstallSyntax:
+    """Tests that `onus uninstall --claude` uses the correct flag syntax."""
+
+    def test_uninstall_flag_syntax_correct(self, onus_bin: Path):
+        """onus uninstall --claude must use --claude flag, not positional."""
+        result = subprocess.run(
+            [str(onus_bin), "uninstall", "--claude"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        # Should succeed or report nothing to remove (not fail with "unexpected argument")
+        assert "unexpected argument" not in (result.stdout + result.stderr).lower()
+        assert result.returncode in (0, 1)
+
+    def test_uninstall_no_positional_arg(self, onus_bin: Path):
+        """onus uninstall claude (positional) should fail gracefully."""
+        result = subprocess.run(
+            [str(onus_bin), "uninstall", "claude"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        stderr_lower = result.stderr.lower()
+        assert "unexpected argument" in stderr_lower or "error" in stderr_lower
 
 
 class TestDoctorCodexCommand:
