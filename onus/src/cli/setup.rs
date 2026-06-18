@@ -162,19 +162,13 @@ pub fn detect_surfaces() -> Vec<DetectedSurface> {
     }
 
     // Check for Google Antigravity
-    match crate::cli::antigravity::find_antigravity() {
-        crate::cli::antigravity::AntigravityCheck::Available { path, .. } => {
-            surfaces.push(DetectedSurface::Antigravity { path });
-        }
-        _ => {}
+    if let crate::cli::antigravity::AntigravityCheck::Available { path, .. } = crate::cli::antigravity::find_antigravity() {
+        surfaces.push(DetectedSurface::Antigravity { path });
     }
 
     // Check for Cursor IDE
-    match crate::cli::cursor::find_cursor() {
-        crate::cli::cursor::CursorCheck::Available { path, .. } => {
-            surfaces.push(DetectedSurface::Cursor { path });
-        }
-        _ => {}
+    if let crate::cli::cursor::CursorCheck::Available { path, .. } = crate::cli::cursor::find_cursor() {
+        surfaces.push(DetectedSurface::Cursor { path });
     }
 
     surfaces

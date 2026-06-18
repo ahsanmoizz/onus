@@ -53,7 +53,7 @@ pub fn run(args: DoctorArgs) -> anyhow::Result<()> {
         log_ok("Daemon", format!("RUNNING (PID {})", daemon_pid.unwrap_or(0)));
         ok_count += 1;
     } else {
-        log_warn("Daemon", format!("NOT RUNNING — some features require the daemon"));
+        log_warn("Daemon", "NOT RUNNING — some features require the daemon".to_string());
         warn_count += 1;
     }
 

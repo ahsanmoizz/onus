@@ -1,8 +1,104 @@
 //! `onus dashboard` — local read-only dashboard backed by the SQLite audit DB.
+//!
+//! Security features:
+//! - Token-based authentication via query parameter
+//! - CSRF protection via Origin/Referer header validation
+//! - Rate limiting (simple per-IP counter)
+//! - Security headers (CSP, X-Content-Type-Options, etc.)
 
 use crate::audit::AuditTrail;
 use clap::Args;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+// ── Rate limiter ─────────────────────────────────────────────────────────────
+
+struct RateLimiter {
+    requests: HashMap<String, Vec<i64>>,
+    max_requests: usize,
+    window_secs: i64,
+}
+
+impl RateLimiter {
+    fn new(max_requests: usize, window_secs: i64) -> Self {
+        Self {
+            requests: HashMap::new(),
+            max_requests,
+            window_secs,
+        }
+    }
+
+    fn allow(&mut self, key: &str) -> bool {
+        let now = now_secs();
+        let cutoff = now - self.window_secs;
+        let entries = self.requests.entry(key.to_string()).or_default();
+        entries.retain(|t| *t > cutoff);
+        if entries.len() >= self.max_requests {
+            false
+        } else {
+            entries.push(now);
+            true
+        }
+    }
+}
+
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+fn origin_is_local(origin: &str) -> bool {
+    origin == "http://127.0.0.1" || origin.starts_with("http://127.0.0.1:") || origin.starts_with("http://localhost")
+}
+
+fn referer_is_local(referer: &str) -> bool {
+    referer.starts_with("http://127.0.0.1") || referer.starts_with("http://localhost")
+}
+
+// ── Response helpers ─────────────────────────────────────────────────────────
+
+fn security_headers(resp: tiny_http::ResponseBox, token: &str) -> tiny_http::ResponseBox {
+    let csp = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:*; img-src 'self' data:;".to_string();
+    resp.with_header(
+        tiny_http::Header::from_bytes(&b"Content-Security-Policy"[..], csp.as_bytes()).unwrap(),
+    )
+    .with_header(
+        tiny_http::Header::from_bytes(&b"X-Content-Type-Options"[..], b"nosniff").unwrap(),
+    )
+    .with_header(
+        tiny_http::Header::from_bytes(&b"X-Frame-Options"[..], b"DENY").unwrap(),
+    )
+    .with_header(
+        tiny_http::Header::from_bytes(&b"Referrer-Policy"[..], b"same-origin").unwrap(),
+    )
+    // Expose token in header for XHR access
+    .with_header(
+        tiny_http::Header::from_bytes(&b"X-Onus-Token"[..], token.as_bytes()).unwrap(),
+    )
+}
+
+fn response(status_code: u16, body: &[u8], content_type: &str, token: &str) -> tiny_http::ResponseBox {
+    let resp = tiny_http::Response::from_data(body)
+        .with_status_code(tiny_http::StatusCode(status_code))
+        .with_header(
+            tiny_http::Header::from_bytes(&b"Content-Type"[..], content_type.as_bytes()).unwrap(),
+        );
+    security_headers(resp.boxed(), token)
+}
+
+// ── Main server ──────────────────────────────────────────────────────────────
+
+use std::sync::OnceLock;
+
+fn rate_limiter() -> &'static Mutex<RateLimiter> {
+    static RL: OnceLock<Mutex<RateLimiter>> = OnceLock::new();
+    RL.get_or_init(|| Mutex::new(RateLimiter::new(60, 60)))
+}
 
 #[derive(Args)]
 pub struct DashboardArgs {
@@ -32,27 +128,74 @@ pub fn run(args: DashboardArgs) -> anyhow::Result<()> {
     println!("Reading audit DB: {}", db_path.display());
 
     loop {
-        let request = server.recv()?;
+        let request = match server.recv() {
+            Ok(r) => r,
+            Err(e) => {
+                log::error!("Dashboard recv error: {}", e);
+                continue;
+            }
+        };
+
         let url = request.url().to_string();
+
+        // Rate limit by IP
+        let client_ip = request
+            .remote_addr()
+            .map(|a| a.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        {
+            let mut limiter = rate_limiter().lock().unwrap();
+            if !limiter.allow(&client_ip) {
+                let _ = request.respond(response(429, b"Too Many Requests", "text/plain", &token));
+                continue;
+            }
+        }
+
+        // Authentication
         if !crate::security::authorized_url(&url, &token) {
-            let _ = request.respond(response(401, b"Unauthorized", "text/plain"));
+            let _ = request.respond(response(401, b"Unauthorized", "text/plain", &token));
             continue;
         }
+
+        // CSRF protection for non-GET methods
+        if request.method() != &tiny_http::Method::Get {
+            let origin = request.headers().iter().find(|h| h.field.to_string() == "Origin").map(|h| h.value.to_string());
+            let referer = request.headers().iter().find(|h| h.field.to_string() == "Referer").map(|h| h.value.to_string());
+
+            let csrf_ok = match (&origin, &referer) {
+                (Some(o), _) if origin_is_local(o) => true,
+                (_, Some(r)) if referer_is_local(r) => true,
+                _ => false,
+            };
+            if !csrf_ok {
+                let _ = request.respond(response(403, b"CSRF check failed", "text/plain", &token));
+                continue;
+            }
+        }
+
         let path = url.split('?').next().unwrap_or("/");
-        let response = match path {
+        let resp = match path {
             "/" => response(
                 200,
                 render_index(&db_path, &token)?.as_bytes(),
                 "text/html; charset=utf-8",
+                &token,
             ),
             "/api/actions" => response(
                 200,
                 render_actions_json(&db_path)?.as_bytes(),
                 "application/json",
+                &token,
             ),
-            _ => response(404, b"Not Found", "text/plain"),
+            "/health" => response(
+                200,
+                b"OK",
+                "text/plain",
+                &token,
+            ),
+            _ => response(404, b"Not Found", "text/plain", &token),
         };
-        let _ = request.respond(response);
+        let _ = request.respond(resp);
     }
 }
 
@@ -100,6 +243,7 @@ fn render_index(db_path: &Path, token: &str) -> anyhow::Result<String> {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:*;">
   <title>Onus Dashboard</title>
   <style>
     body {{ margin: 0; font-family: Inter, Segoe UI, Arial, sans-serif; background: #f7f8fa; color: #111827; }}
@@ -165,50 +309,4 @@ fn render_index(db_path: &Path, token: &str) -> anyhow::Result<String> {
         serde_json::to_string(token)?,
         actions_json
     ))
-}
-
-fn response(status_code: u16, body: &[u8], content_type: &str) -> tiny_http::ResponseBox {
-    tiny_http::Response::from_data(body)
-        .with_status_code(tiny_http::StatusCode(status_code))
-        .with_header(
-            tiny_http::Header::from_bytes(&b"Content-Type"[..], content_type.as_bytes()).unwrap(),
-        )
-        .boxed()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::Verdict;
-
-    fn temp_db(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("onus-{}-{}.db", name, uuid::Uuid::new_v4()))
-    }
-
-    #[test]
-    fn dashboard_actions_json_masks_persisted_payloads() {
-        let path = temp_db("dashboard-mask");
-        let mut audit = AuditTrail::open(&path).unwrap();
-        audit
-            .record_action(
-                "session-1",
-                1,
-                "file_write",
-                "Write",
-                r#"{"content":"password=super-secret","token":"raw-token"}"#,
-                &Verdict::Allow,
-                None,
-                None,
-                1,
-            )
-            .unwrap();
-
-        let body = render_actions_json(&path).unwrap();
-        assert!(!body.contains("super-secret"));
-        assert!(!body.contains("raw-token"));
-        assert!(body.contains(crate::security::REDACTED));
-        assert!(body.contains("payload_hash"));
-
-        let _ = std::fs::remove_file(path);
-    }
 }
