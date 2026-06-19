@@ -25,6 +25,28 @@ pub enum RulesCommand {
     Edit,
     /// Fetch latest community rules from GitHub
     Pull,
+    /// Install a signed policy file into the rules directory
+    Install {
+        /// Path to the signed policy file (JSON)
+        path: String,
+    },
+    /// Verify the signature of a signed policy file
+    Verify {
+        /// Path to the signed policy file (JSON)
+        path: String,
+    },
+    /// Sign a policy file with the local signing key
+    Sign {
+        /// Path to the policy file (JSON) to sign
+        path: String,
+    },
+    /// Revoke a previously installed policy by removing it from the rules directory
+    Revoke {
+        /// Policy name (filename without extension) to revoke
+        name: String,
+    },
+    /// Generate Ed25519 signing keys for policy signing
+    GenerateKeys,
 }
 
 pub fn run(args: RulesArgs) -> anyhow::Result<()> {
@@ -219,6 +241,119 @@ pub fn run(args: RulesArgs) -> anyhow::Result<()> {
             let count = body.matches("[[rule]]").count();
             println!("Fetched and installed {} rules from community.", count);
             println!("File: {}", rules_path.display());
+        }
+
+        RulesCommand::Install { ref path } => {
+            let data = std::fs::read_to_string(path)
+                .map_err(|e| anyhow::anyhow!("Failed to read policy file: {}", e))?;
+            let signed: crate::policy::SignedPolicy = serde_json::from_str(&data)
+                .map_err(|e| anyhow::anyhow!("Invalid signed policy JSON: {}", e))?;
+
+            // Verify signature if present
+            if let Some(ref sig) = signed.signature {
+                if !sig.is_empty() {
+                    signed.verify()
+                        .map_err(|e| anyhow::anyhow!("Signature verification failed: {}", e))?;
+                    println!("Signature verified (signer: {})", &sig.signer[..16.min(sig.signer.len())]);
+                } else {
+                    println!("Warning: policy has empty signature field, installing without verification");
+                }
+            } else {
+                println!("Warning: policy is not signed, installing without verification");
+            }
+
+            let filename = std::path::Path::new(path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("installed");
+            let dest = rules_dir.join(format!("{}.json", filename));
+            std::fs::create_dir_all(&rules_dir)?;
+
+            // Backup existing if present
+            if dest.exists() {
+                let backup = rules_dir.join(format!("{}.json.bak", filename));
+                std::fs::copy(&dest, &backup)?;
+                println!("Backed up existing policy to {}", backup.display());
+            }
+
+            std::fs::write(&dest, &data)?;
+            println!("Installed policy to {}", dest.display());
+        }
+
+        RulesCommand::Verify { ref path } => {
+            let data = std::fs::read_to_string(path)
+                .map_err(|e| anyhow::anyhow!("Failed to read policy file: {}", e))?;
+            let signed: crate::policy::SignedPolicy = serde_json::from_str(&data)
+                .map_err(|e| anyhow::anyhow!("Invalid signed policy JSON: {}", e))?;
+
+            match signed.signature {
+                Some(ref sig) if !sig.is_empty() => {
+                    println!("Algorithm: {}", sig.algorithm);
+                    println!("Signer:    {}", sig.signer);
+                    match signed.verify() {
+                        Ok(_) => println!("Verdict:   VALID"),
+                        Err(e) => println!("Verdict:   INVALID — {}", e),
+                    }
+                }
+                _ => {
+                    println!("Policy is not signed.");
+                }
+            }
+        }
+
+        RulesCommand::Sign { ref path } => {
+            if !crate::policy::signing::has_signing_keys() {
+                anyhow::bail!(
+                    "No signing keys found. Run 'onus rules generate-keys' first."
+                );
+            }
+
+            let data = std::fs::read_to_string(path)
+                .map_err(|e| anyhow::anyhow!("Failed to read policy file: {}", e))?;
+            let mut signed: crate::policy::SignedPolicy = serde_json::from_str(&data)
+                .map_err(|e| anyhow::anyhow!("Invalid policy JSON: {}", e))?;
+
+            let key_pair = crate::policy::signing::load_private_key()?;
+            let sig = crate::policy::signing::sign_policy(&signed, &key_pair)?;
+
+            signed.signature = Some(sig);
+            let out_path = format!("{}.signed.json", path.trim_end_matches(".json"));
+            let out_data = serde_json::to_string_pretty(&signed)?;
+            std::fs::write(&out_path, &out_data)?;
+            println!("Signed policy written to {}", out_path);
+        }
+
+        RulesCommand::Revoke { ref name } => {
+            let candidates = [
+                rules_dir.join(format!("{}.json", name)),
+                rules_dir.join(format!("{}.toml", name)),
+            ];
+            let mut found = false;
+            for candidate in &candidates {
+                if candidate.exists() {
+                    std::fs::remove_file(candidate)?;
+                    println!("Revoked (removed): {}", candidate.display());
+                    found = true;
+                }
+            }
+            if !found {
+                anyhow::bail!("No policy named '{}' found in {}", name, rules_dir.display());
+            }
+        }
+
+        RulesCommand::GenerateKeys => {
+            if crate::policy::signing::has_signing_keys() {
+                anyhow::bail!(
+                    "Signing keys already exist at {}. Delete them first to regenerate.",
+                    crate::policy::signing::signing_dir().display()
+                );
+            }
+            crate::policy::signing::generate_keys()?;
+            println!("Ed25519 signing keys generated:");
+            println!("  Private key: {}", crate::policy::signing::private_key_path().display());
+            println!("  Public key:  {}", crate::policy::signing::public_key_path().display());
+            let pub_hex = crate::policy::signing::load_public_key_hex()?;
+            println!("  Public hex:  {}", pub_hex);
         }
     }
 

@@ -33,7 +33,13 @@ fn main() -> anyhow::Result<()> {
         onus_core::cli::Commands::Shell(args) => onus_core::cli::shell::run(args)?,
         onus_core::cli::Commands::CursorHook(args) => onus_core::cli::cursor_hook::run(args)?,
         onus_core::cli::Commands::Verify(args) => onus_core::cli::verify::run(args)?,
+        onus_core::cli::Commands::Checkpoint(args) => onus_core::cli::recovery::run_checkpoint(args)?,
+        onus_core::cli::Commands::Rollback(args) => onus_core::cli::recovery::run_rollback(args)?,
+        onus_core::cli::Commands::Compensation(args) => onus_core::cli::recovery::run_compensation(args)?,
         onus_core::cli::Commands::Workspace(args) => onus_core::cli::workspace::run(args)?,
+        onus_core::cli::Commands::Memory(args) => onus_core::cli::memory::run(args)?,
+        onus_core::cli::Commands::Handoff(args) => onus_core::cli::handoff::run(args)?,
+        onus_core::cli::Commands::Lease(args) => onus_core::cli::lease_cli::run(args)?,
     }
 
     Ok(())

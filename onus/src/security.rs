@@ -244,6 +244,127 @@ fn looks_like_secret(value: &str) -> bool {
     ]
     .iter()
     .any(|needle| lower.contains(needle))
+        || looks_like_jwt(value)
+        || looks_like_connection_string(value)
+        || looks_like_private_key(value)
+        || high_entropy_string(value)
+}
+
+/// Detect JWTs: base64url-encoded header.payload[.sig] with typical lengths
+fn looks_like_jwt(value: &str) -> bool {
+    let trimmed = value.trim();
+    let parts: Vec<&str> = trimmed.split('.').collect();
+    if parts.len() != 3 {
+        return false;
+    }
+    let total_len = trimmed.len();
+    // JWTs are typically 150-2000 chars
+    if !(80..=5000).contains(&total_len) {
+        return false;
+    }
+    // Each part is valid base64url (no padding issues in header/payload)
+    parts.iter().all(|p| {
+        !p.is_empty()
+            && p.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '=')
+    })
+}
+
+/// Detect connection strings like postgres://user:pass@host/db
+fn looks_like_connection_string(value: &str) -> bool {
+    let trimmed = value.trim().to_ascii_lowercase();
+    for prefix in &[
+        "postgresql://",
+        "postgres://",
+        "mysql://",
+        "mongodb://",
+        "mongodb+srv://",
+        "redis://",
+        "rediss://",
+        "amqp://",
+        "rabbitmq://",
+        "jdbc:",
+        "sqlite://",
+        "snowflake://",
+        "bigquery://",
+    ] {
+        if trimmed.starts_with(prefix) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Detect PEM-encoded or raw private key material
+fn looks_like_private_key(value: &str) -> bool {
+    let trimmed = value.trim();
+    if trimmed.starts_with("-----BEGIN") && trimmed.contains("PRIVATE KEY") {
+        return true;
+    }
+    // Detect ed25519/curve25519 seed hex (64 hex chars, common key length)
+    let cleaned: String = trimmed.chars().filter(|c| c.is_ascii_hexdigit()).collect();
+    if cleaned.len() == 64 && trimmed.len() <= 70 {
+        // Possible 32-byte hex seed — check it's not just a sha256 hash by looking at charset
+        let has_non_hex = trimmed.chars().any(|c| !c.is_ascii_hexdigit());
+        if !has_non_hex {
+            return true;
+        }
+    }
+    false
+}
+
+/// Shannon entropy heuristic: strings with high entropy (entropy ≥ 4.2) are likely secrets
+fn high_entropy_string(value: &str) -> bool {
+    let trimmed = value.trim();
+    // Skip short strings, URLs, file paths, common identifiers
+    if trimmed.len() < 16 {
+        return false;
+    }
+    // Skip natural language (contains spaces, common words)
+    let word_count = trimmed.split_whitespace().count();
+    if word_count > 3 {
+        return false;
+    }
+    // Skip URLs and file paths
+    if trimmed.starts_with("http://")
+        || trimmed.starts_with("https://")
+        || trimmed.starts_with('/')
+        || trimmed.starts_with("./")
+        || trimmed.starts_with("../")
+    {
+        return false;
+    }
+    // Skip simple booleans, numbers, UUIDs
+    if trimmed.parse::<f64>().is_ok()
+        || trimmed == "true"
+        || trimmed == "false"
+        || trimmed.len() == 36 && trimmed.chars().filter(|c| *c == '-').count() == 4
+    {
+        return false;
+    }
+
+    let entropy = shannon_entropy(trimmed);
+    entropy > 4.0
+}
+
+/// Shannon entropy calculation over a string's byte values
+fn shannon_entropy(s: &str) -> f64 {
+    let bytes = s.as_bytes();
+    if bytes.is_empty() {
+        return 0.0;
+    }
+    let len = bytes.len() as f64;
+    let mut freq = [0u64; 256];
+    for &b in bytes {
+        freq[b as usize] += 1;
+    }
+    -freq
+        .iter()
+        .filter(|&&c| c > 0)
+        .map(|&c| {
+            let p = c as f64 / len;
+            p * p.log2()
+        })
+        .sum::<f64>()
 }
 
 #[cfg(test)]
@@ -279,5 +400,47 @@ mod tests {
         assert!(authorized_url("/api/actions?token=abc", "abc"));
         assert!(!authorized_url("/api/actions", "abc"));
         assert!(!authorized_url("/api/actions?token=def", "abc"));
+    }
+
+    #[test]
+    fn detects_jwt_strings() {
+        let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3j2k9Jj6Hv9K6hV5Y2D3eQ0fF0gG9l4s";
+        assert!(looks_like_jwt(jwt));
+        assert!(!looks_like_jwt("hello.world"));
+        assert!(!looks_like_jwt("hello.world.foo.bar"));
+    }
+
+    #[test]
+    fn detects_connection_strings() {
+        assert!(looks_like_connection_string("postgres://user:pass@localhost:5432/db"));
+        assert!(looks_like_connection_string("mongodb+srv://admin:secret@cluster.mongodb.net"));
+        assert!(!looks_like_connection_string("https://example.com/api"));
+    }
+
+    #[test]
+    fn detects_private_key_pem() {
+        assert!(looks_like_private_key("-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg\n-----END PRIVATE KEY-----"));
+        assert!(!looks_like_private_key("hello world"));
+    }
+
+    #[test]
+    fn entropy_detects_high_entropy_strings() {
+        let high_entropy = "aB3dE7fG1hI4jK9mL0nO2pQ5rS6tU8vW0xY1zC4";
+        assert!(high_entropy_string(high_entropy));
+        assert!(!high_entropy_string("hello world"));
+        assert!(!high_entropy_string("true"));
+        assert!(!high_entropy_string("https://example.com/path"));
+    }
+
+    #[test]
+    fn content_aware_redaction_works() {
+        let payload = serde_json::json!({
+            "prompt": "what is the weather?",
+            "jwt_token": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3j2k9Jj6Hv9K6hV5Y2D3eQ0fF0gG9l4s",
+            "db_url": "postgres://admin:supersecret@localhost:5432/prod",
+        });
+        let c = classify_payload(&payload);
+        assert!(c.redacted.contains(REDACTED));
+        assert!(!c.redacted.contains("supersecret"));
     }
 }

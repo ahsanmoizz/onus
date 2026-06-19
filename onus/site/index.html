@@ -1,43 +1,184 @@
-# Onus - AI Agent Firewall
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Onus — AI Agent Firewall</title>
+  <meta name="description" content="Onus is an open-source AI agent firewall that intercepts, evaluates, and blocks dangerous agent actions in real time." />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #09090b; color: #e4e4e7; line-height: 1.6; }
+    .container { max-width: 960px; margin: 0 auto; padding: 0 24px; }
 
-Technical alpha safety layer for actions explicitly routed through Onus. It evaluates proposed actions against policy rules and blocks dangerous operations on supported paths before they execute.
+    /* Nav */
+    nav { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; border-bottom: 1px solid #27272a; }
+    nav .logo { font-size: 1.25rem; font-weight: 700; color: #f97316; }
+    nav .links { display: flex; gap: 24px; }
+    nav .links a { color: #a1a1aa; text-decoration: none; font-size: 0.875rem; transition: color 0.2s; }
+    nav .links a:hover { color: #e4e4e7; }
 
-## Features
+    /* Hero */
+    .hero { padding: 80px 0 60px; text-align: center; }
+    .hero h1 { font-size: 3rem; font-weight: 800; line-height: 1.15; letter-spacing: -0.02em; }
+    .hero h1 span { color: #f97316; }
+    .hero p { max-width: 600px; margin: 20px auto; color: #a1a1aa; font-size: 1.125rem; }
+    .hero .cta { margin-top: 32px; display: flex; gap: 12px; justify-content: center; }
+    .hero .cta a { padding: 12px 24px; border-radius: 8px; font-size: 0.9375rem; font-weight: 500; text-decoration: none; transition: all 0.2s; }
+    .hero .cta .primary { background: #f97316; color: #09090b; }
+    .hero .cta .primary:hover { background: #ea580c; }
+    .hero .cta .secondary { border: 1px solid #27272a; color: #e4e4e7; }
+    .hero .cta .secondary:hover { background: #18181b; }
 
-- **Pre-action checks on routed paths** - evaluates supported actions before execution when the agent/tool uses an Onus integration
-- **Policy engine** - 13 built-in safety and scope rules, fully configurable TOML
-- **Prototype integrations** - Claude Code hook adapter, experimental MCP proxy, shell wrapper, Python SDK, VS Code extension
-- **Audit trail** - local SQLite audit records with SHA-256 hash-chain verification
-- **Goal drift detection** - validates file touches against declared scope where scope tracking is wired in
-- **Tier 2 heuristics** - catch dangerous patterns by magnitude analysis
-- **Low latency** - local Rust binary, no cloud dependency for deterministic evaluation
+    /* Feature sections */
+    section { padding: 60px 0; }
+    section h2 { font-size: 1.5rem; font-weight: 700; margin-bottom: 8px; }
+    section .subtitle { color: #a1a1aa; margin-bottom: 32px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    .card { background: #18181b; border: 1px solid #27272a; border-radius: 12px; padding: 24px; }
+    .card h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: 8px; color: #f97316; }
+    .card p { color: #a1a1aa; font-size: 0.875rem; }
+    .card code { display: block; background: #09090b; border: 1px solid #27272a; border-radius: 6px; padding: 12px; margin-top: 12px; font-size: 0.8125rem; color: #e4e4e7; overflow-x: auto; }
 
-## Quick Start
+    /* Level cards */
+    .levels { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .level { background: #18181b; border: 1px solid #27272a; border-radius: 10px; padding: 20px; }
+    .level .tag { display: inline-block; font-size: 0.75rem; font-weight: 600; padding: 2px 8px; border-radius: 4px; margin-bottom: 8px; }
+    .level.l0 .tag { background: #18181b; color: #a1a1aa; border: 1px solid #27272a; }
+    .level.l1 .tag { background: #1e3a5f; color: #60a5fa; border: 1px solid #2563eb33; }
+    .level.l2 .tag { background: #1e3a2f; color: #4ade80; border: 1px solid #16a34a33; }
+    .level.l3 .tag { background: #3a1e1e; color: #fb923c; border: 1px solid #ea580c33; }
+    .level.l4 .tag { background: #3a1e3a; color: #c084fc; border: 1px solid #9333ea33; }
+    .level h3 { font-size: 1rem; font-weight: 600; margin-bottom: 4px; }
+    .level p { font-size: 0.8125rem; color: #a1a1aa; }
 
-```bash
-# Install (Linux/macOS)
-curl -fsSL https://github.com/Gitlawb/onus/releases/latest/download/install.sh | bash
+    /* CTA bottom */
+    .cta-section { text-align: center; padding: 80px 0; border-top: 1px solid #27272a; }
+    .cta-section h2 { font-size: 1.75rem; }
+    .cta-section p { color: #a1a1aa; margin: 12px 0 24px; }
+    .cta-section a { display: inline-block; padding: 12px 24px; background: #f97316; color: #09090b; border-radius: 8px; text-decoration: none; font-weight: 500; }
+    .cta-section a:hover { background: #ea580c; }
 
-# Install (Windows PowerShell)
-iex "& { $(irm https://github.com/Gitlawb/onus/releases/latest/download/install.ps1) }"
+    footer { text-align: center; padding: 24px; border-top: 1px solid #27272a; color: #52525b; font-size: 0.8125rem; }
 
-# Install (npm)
-npx onus
-```
+    @media (max-width: 640px) { .hero h1 { font-size: 2rem; } .grid-2, .levels { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="logo">Onus</div>
+    <div class="links">
+      <a href="#features">Features</a>
+      <a href="#levels">Levels</a>
+      <a href="https://github.com/onus/onus">GitHub</a>
+      <a href="#install">Install</a>
+    </div>
+  </nav>
 
-## Documentation
+  <div class="hero">
+    <div class="container">
+      <h1>AI Agent <span>Firewall</span></h1>
+      <p>Intercept, evaluate, and block dangerous agent actions before they execute. Open-source security for AI agents.</p>
+      <div class="cta">
+        <a class="primary" href="#install">Get Started</a>
+        <a class="secondary" href="https://github.com/onus/onus">View on GitHub</a>
+      </div>
+    </div>
+  </div>
 
-This page is informational, not the live Onus dashboard. For the current runtime state, run `onus --help`, `onus dashboard`, and the repository current-state reports.
+  <section id="features">
+    <div class="container">
+      <h2>Why Onus?</h2>
+      <p class="subtitle">AI agents run with broad capabilities. Onus gives you control.</p>
+      <div class="grid-2">
+        <div class="card">
+          <h3>Real-time Interception</h3>
+          <p>Every tool call is intercepted and evaluated against policy before execution. Block file access, network writes, and credential leaks in real time.</p>
+          <code>onus run "rm -rf /data" → DENIED</code>
+        </div>
+        <div class="card">
+          <h3>Human Approval</h3>
+          <p>Dangerous actions require explicit human approval. Built-in approval server with local dashboard.</p>
+          <code>onus approvals serve → http://127.0.0.1:9191</code>
+        </div>
+        <div class="card">
+          <h3>Signed Policies</h3>
+          <p>Cryptographically sign your safety policies with Ed25519. Verifiable, tamper-proof rule enforcement.</p>
+          <code>onus rules sign policy.json → policy.signed.json</code>
+        </div>
+        <div class="card">
+          <h3>Immutable Audit</h3>
+          <p>Every action is logged with hash-chaining. Verify integrity end-to-end. Tampering is instantly detectable.</p>
+          <code>onus verify → Chain integrity: VALID</code>
+        </div>
+        <div class="card">
+          <h3>Secret Redaction</h3>
+          <p>Content-aware detection of JWTs, connection strings, private keys, and high-entropy secrets. They never appear in logs.</p>
+          <code>token: "eyJhbGci..." → [REDACTED]</code>
+        </div>
+        <div class="card">
+          <h3>Container Isolation</h3>
+          <p>Run agents in sandboxed workspaces with filesystem, network, and process containment (L3).</p>
+          <code>onus workspace create --sandbox</code>
+        </div>
+      </div>
+    </div>
+  </section>
 
-## Architecture
+  <section id="levels">
+    <div class="container">
+      <h2>Enforcement Levels</h2>
+      <p class="subtitle">Four tiers of protection, from best-effort to full containment</p>
+      <div class="levels">
+        <div class="level l1">
+          <span class="tag">L1 — Cooperative</span>
+          <h3>Best-effort hook</h3>
+          <p>Agent-side hooks intercept tool calls. The agent can opt out. Easy to set up, minimal overhead.</p>
+        </div>
+        <div class="level l2">
+          <span class="tag">L2 — Intercepted</span>
+          <h3>Bootstrap enforcement</h3>
+          <p>Onus sits between the agent and tools. Action interception is mandatory for routed operations. Requires MCP proxy or shell wrapper.</p>
+        </div>
+        <div class="level l3">
+          <span class="tag">L3 — Isolated</span>
+          <h3>Containerized execution</h3>
+          <p>Agent runs inside a sandbox with filesystem, network, and process isolation. Onus controls the boundary.</p>
+        </div>
+        <div class="level l4">
+          <span class="tag">L4 — Sovereign</span>
+          <h3>Full authority control</h3>
+          <p>Onus holds all credentials and authority. Agents request actions; Onus executes them. No direct access to sensitive resources.</p>
+        </div>
+      </div>
+    </div>
+  </section>
 
-```text
-Agent Action -> Onus IPC -> Policy Engine -> Audit Log -> Verdict -> Block/Allow/Correct
-                              |
-                       Tier 1 Rules
-                    Tier 2 Heuristics
-```
+  <section id="install">
+    <div class="container">
+      <h2>Install</h2>
+      <p class="subtitle">One command to get started</p>
+      <div style="background: #18181b; border: 1px solid #27272a; border-radius: 12px; padding: 24px;">
+        <code style="display: block; margin-bottom: 16px; color: #e4e4e7;">
+          curl -fsSL https://onus.dev/install.sh | sh
+        </code>
+        <p style="color: #a1a1aa; font-size: 0.875rem;">
+          Or download from <a href="https://github.com/onus/onus/releases" style="color: #f97316;">GitHub Releases</a>.
+          Supports macOS, Linux, and Windows.
+        </p>
+      </div>
+    </div>
+  </section>
 
-## License
+  <div class="cta-section">
+    <div class="container">
+      <h2>Ready to secure your agents?</h2>
+      <p>Get started in under a minute. Open-source, auditable, and built for production.</p>
+      <a href="https://github.com/onus/onus">Get Started on GitHub</a>
+    </div>
+  </div>
 
-MIT (c) 2026 Onus
+  <footer>
+    <div class="container">Onus — Open-source AI Agent Firewall. MIT licensed.</div>
+  </footer>
+</body>
+</html>

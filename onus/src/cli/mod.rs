@@ -1,26 +1,33 @@
-pub mod antigravity;
+//! CLI entry point and command routing.
+
 pub mod approvals;
+pub mod antigravity;
 pub mod authority;
 pub mod claude_hook;
 pub mod codex;
 pub mod contract;
 pub mod cursor;
+pub mod cursor_hook;
 pub mod daemon_cmd;
 pub mod dashboard;
 pub mod doctor;
 pub mod evaluate;
 pub mod intake;
 pub mod log_cmd;
-pub mod rules;
+pub mod memory;
+pub mod recovery;
 pub mod run_cmd;
+pub mod rules;
 pub mod session;
+pub mod setup;
 pub mod shell;
 pub mod status;
 pub mod uninstall;
-pub mod setup;
 pub mod upgrade;
 pub mod verify;
 pub mod workspace;
+pub mod handoff;
+pub mod lease_cli;
 
 use clap::{Parser, Subcommand};
 
@@ -34,30 +41,29 @@ pub struct Cli {
 }
 
 #[derive(Subcommand)]
-#[allow(clippy::large_enum_variant)]
 pub enum Commands {
     /// Serve the local approval UI for pending escalations
     Approvals(approvals::ApprovalsArgs),
 
-    /// Manage narrow L4 broker-owned authority proofs
+    /// Authority — request, approve, execute, or inspect controlled operations
     Authority(authority::AuthorityArgs),
+
+    /// Claude Code tool-use hook
+    ClaudeHook(claude_hook::ClaudeHookArgs),
 
     /// Evaluate a single action and return a verdict (used by Claude Code preToolUse hook)
     Evaluate(evaluate::EvaluateArgs),
 
-    /// Run as a Claude Code PreToolUse hook adapter (L1 BEST-EFFORT)
-    ClaudeHook(claude_hook::ClaudeHookArgs),
-
     /// Start, stop, or check the Onus daemon
     Daemon(daemon_cmd::DaemonArgs),
 
-    /// Manage task contracts for governed sessions
+    /// Create and manage task contracts
     Contract(contract::ContractArgs),
 
     /// Serve a local dashboard backed by the audit database
     Dashboard(dashboard::DashboardArgs),
 
-    /// Inspect an original prompt and optionally start a governed session
+    /// Prompt Intake Guardian — analyze an agentic task before execution
     Intake(intake::IntakeArgs),
 
     /// Show daemon and session status
@@ -66,7 +72,7 @@ pub enum Commands {
     /// View the audit trail
     Log(log_cmd::LogArgs),
 
-    /// Run an agent command inside an Onus-controlled workspace
+    /// Run a command through Onus evaluation
     Run(run_cmd::RunArgs),
 
     /// View a specific session summary
@@ -75,14 +81,14 @@ pub enum Commands {
     /// Manage safety rules
     Rules(rules::RulesArgs),
 
-    /// Diagnose integration surface health
-    Doctor(doctor::DoctorArgs),
-
-    /// Install Onus hooks for integration surfaces (Claude Code, etc.)
-    Setup(setup::SetupArgs),
-
     /// Download and install the latest version of Onus
     Upgrade,
+
+    /// Run system diagnostics
+    Doctor(doctor::DoctorArgs),
+
+    /// Set up and configure integrations
+    Setup(setup::SetupArgs),
 
     /// Remove Onus and all its configuration, preserving audit trail (add --purge to delete all)
     Uninstall(uninstall::UninstallArgs),
@@ -93,15 +99,32 @@ pub enum Commands {
     /// Install or remove the shell wrapper for terminal-based agents
     Shell(shell::ShellArgs),
 
-    /// Run as a Cursor IDE PreToolUse hook — reads JSON on stdin, returns verdict
+    /// VS Code Cursor agent hook
     CursorHook(cursor_hook::CursorHookArgs),
 
     /// Verify hash chain integrity of the audit trail
     Verify(verify::VerifyArgs),
 
-    /// Create, inspect, export, or destroy an Onus L3 workspace
+    /// Create, list, inspect, and restore workspace checkpoints
+    Checkpoint(recovery::CheckpointArgs),
+
+    /// Roll back individual actions, groups, or entire sessions
+    Rollback(recovery::RollbackArgs),
+
+    /// Inspect or execute compensation for previously evaluated actions
+    Compensation(recovery::CompensationArgs),
+
+    /// Containerized workspace management
     Workspace(workspace::WorkspaceArgs),
+
+    /// Manage memory lifecycle operations
+    Memory(memory::MemoryArgs),
+
+    /// Create, import, and display cross-agent handoff manifests
+    Handoff(handoff::HandoffArgs),
+
+    /// Acquire, release, heartbeat, and manage session leases
+    Lease(lease_cli::LeaseArgs),
 }
 
-pub mod cursor_hook;
 pub mod mcp_proxy;

@@ -213,7 +213,7 @@ pub fn remove_hook() -> anyhow::Result<()> {
         obj.remove("preToolUse");
     }
 
-    let is_empty = config.as_object().map_or(true, |o| o.is_empty());
+    let is_empty = config.as_object().is_none_or(|o| o.is_empty());
     if is_empty {
         std::fs::remove_file(&hooks_path)?;
     } else {
@@ -318,7 +318,7 @@ pub fn remove_mcp_server() -> anyhow::Result<()> {
         }
     }
 
-    let is_empty = config.as_object().map_or(true, |o| o.is_empty());
+    let is_empty = config.as_object().is_none_or(|o| o.is_empty());
     if is_empty {
         let _ = std::fs::remove_file(&mcp_path);
     } else {

@@ -652,11 +652,13 @@ name = "onus"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64",
  "clap",
  "env_logger",
  "hex",
  "libc",
  "log",
+ "pem",
  "regex",
  "ring",
  "rusqlite",
@@ -668,6 +670,16 @@ dependencies = [
  "ureq",
  "uuid",
  "winapi",
+]
+
+[[package]]
+name = "pem"
+version = "3.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d30c53c26bc5b31a98cd02d20f25a7c8567146caf63ed593a9d87b2775291be"
+dependencies = [
+ "base64",
+ "serde_core",
 ]
 
 [[package]]
