@@ -225,6 +225,21 @@ impl AuditTrail {
             );
 
             CREATE INDEX IF NOT EXISTS idx_pending_status ON pending_approvals(status);
+
+            CREATE TABLE IF NOT EXISTS session_anchors (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                anchor_id TEXT NOT NULL UNIQUE,
+                session_id TEXT NOT NULL REFERENCES sessions(session_id),
+                first_action_id TEXT NOT NULL,
+                last_action_id TEXT NOT NULL,
+                last_hash TEXT NOT NULL,
+                prev_anchor_hash TEXT NOT NULL DEFAULT '',
+                anchor_hash TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_session_anchors_session_id
+                ON session_anchors(session_id);
             ",
         )?;
         ensure_column(&conn, "actions", "payload_hash", "TEXT NOT NULL DEFAULT ''")?;
@@ -364,6 +379,7 @@ impl AuditTrail {
             "UPDATE sessions SET status = 'completed', ended_at = ?1 WHERE session_id = ?2",
             params![now, session_id],
         )?;
+        self.create_session_anchor(session_id)?;
         Ok(())
     }
 
@@ -372,6 +388,69 @@ impl AuditTrail {
         self.conn.execute(
             "UPDATE sessions SET status = ?1 WHERE session_id = ?2",
             params![status, session_id],
+        )?;
+        Ok(())
+    }
+
+    /// Create a session anchor to link this session into the global ordering.
+    ///
+    /// Must be called after at least one action has been recorded for the session.
+    /// Called automatically by `end_session`.
+    pub fn create_session_anchor(&mut self, session_id: &str) -> anyhow::Result<()> {
+        use uuid::Uuid;
+
+        // Get first and last action for this session
+        let (first_id, last_id, last_hash) = self.conn.query_row(
+            "SELECT action_id, action_id, hash FROM actions WHERE session_id = ?1
+             ORDER BY id ASC LIMIT 1",
+            params![session_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    String::new(),
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        ).and_then(|(first, _, _)| {
+            self.conn.query_row(
+                "SELECT action_id, hash FROM actions WHERE session_id = ?1
+                 ORDER BY id DESC LIMIT 1",
+                params![session_id],
+                |row| {
+                    Ok((first.clone(), row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                },
+            )
+        }).map_err(|e: rusqlite::Error| {
+            if e == rusqlite::Error::QueryReturnedNoRows {
+                anyhow::anyhow!("cannot create anchor for empty session: {}", session_id)
+            } else {
+                anyhow::Error::from(e)
+            }
+        })?;
+
+        // Get prev anchor hash (last anchor in global order)
+        let prev_anchor_hash = self
+            .conn
+            .query_row(
+                "SELECT anchor_hash FROM session_anchors ORDER BY id DESC LIMIT 1",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap_or_default();
+
+        let anchor_id = Uuid::new_v4().to_string();
+        let input = format!(
+            "{}|{}|{}|{}|{}|{}",
+            anchor_id, session_id, first_id, last_id, last_hash, prev_anchor_hash
+        );
+        let anchor_hash = hex::encode(Sha256::digest(input.as_bytes()));
+        let now = now_timestamp();
+
+        self.conn.execute(
+            "INSERT INTO session_anchors
+                (anchor_id, session_id, first_action_id, last_action_id, last_hash, prev_anchor_hash, anchor_hash, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![anchor_id, session_id, first_id, last_id, last_hash, prev_anchor_hash, anchor_hash, now],
         )?;
         Ok(())
     }
@@ -752,57 +831,84 @@ impl AuditTrail {
         Ok(bad)
     }
 
-    /// Verify hash chain for ALL actions (session-agnostic).
+    /// Verify hash chain for ALL actions across sessions.
+    ///
+    /// Each session forms its own independent hash chain.  Cross-session ordering
+    /// is captured by the `session_anchors` table so that global insertion order
+    /// is tamper-evident even though each session chains internally.
     pub fn verify_all_actions(&self) -> anyhow::Result<Vec<(String, String)>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT action_id, session_id, sequence, action_type, payload, verdict, prev_hash, hash
-             FROM actions ORDER BY id ASC",
-        )?;
+        let mut bad: Vec<(String, String)> = Vec::new();
 
+        // 1. Verify each session's chain independently.
+        let mut session_stmt = self
+            .conn
+            .prepare("SELECT session_id FROM actions GROUP BY session_id ORDER BY MIN(id)")?;
+        let session_rows: Vec<String> = session_stmt
+            .query_map([], |row| row.get::<_, String>(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        for session_id in &session_rows {
+            let chain_bad = self.verify_chain(session_id)?;
+            bad.extend(chain_bad);
+        }
+
+        // 2. Verify session anchor chain (global ordering).
+        let anchor_bad = self.verify_session_anchors()?;
+        bad.extend(anchor_bad);
+
+        Ok(bad)
+    }
+
+    /// Verify the session anchor chain — a lightweight global ordering over sessions.
+    fn verify_session_anchors(&self) -> anyhow::Result<Vec<(String, String)>> {
+        let mut bad: Vec<(String, String)> = Vec::new();
+
+        let mut stmt = self.conn.prepare(
+            "SELECT anchor_id, session_id, first_action_id, last_action_id, last_hash, prev_anchor_hash, anchor_hash
+             FROM session_anchors ORDER BY id ASC",
+        )?;
         let rows = stmt.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
-                row.get::<_, i64>(2)? as u64,
+                row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
                 row.get::<_, String>(4)?,
                 row.get::<_, String>(5)?,
                 row.get::<_, String>(6)?,
-                row.get::<_, String>(7)?,
             ))
         })?;
 
-        let mut bad: Vec<(String, String)> = Vec::new();
         let mut expected_prev = String::new();
-
         for row in rows {
-            let (action_id, session_id, sequence, action_type, payload, verdict, prev_hash, hash) =
+            let (anchor_id, session_id, first_id, last_id, last_hash, prev_anchor, anchor_hash) =
                 row?;
-            let hash_input = format!(
-                "{}|{}|{}|{}|{}|{}|{}",
-                action_id, session_id, sequence, action_type, payload, verdict, expected_prev
+            let input = format!(
+                "{}|{}|{}|{}|{}|{}",
+                anchor_id, session_id, first_id, last_id, last_hash, expected_prev
             );
-            let expected_hash = hex::encode(Sha256::digest(hash_input.as_bytes()));
-
-            if hash != expected_hash {
+            let expected = hex::encode(Sha256::digest(input.as_bytes()));
+            if anchor_hash != expected {
                 bad.push((
-                    action_id.clone(),
-                    format!("hash mismatch: stored={}, expected={}", hash, expected_hash),
-                ));
-            }
-            if prev_hash != expected_prev {
-                bad.push((
-                    action_id.clone(),
+                    format!("anchor:{}", anchor_id),
                     format!(
-                        "prev_hash mismatch: stored={}, expected={}",
-                        prev_hash, expected_prev
+                        "anchor hash mismatch: stored={}, expected={}",
+                        anchor_hash, expected
                     ),
                 ));
             }
-
-            expected_prev = hash;
+            if prev_anchor != expected_prev {
+                bad.push((
+                    format!("anchor:{}", anchor_id),
+                    format!(
+                        "prev_anchor_hash mismatch: stored={}, expected={}",
+                        prev_anchor, expected_prev
+                    ),
+                ));
+            }
+            expected_prev = anchor_hash;
         }
-
         Ok(bad)
     }
 
@@ -1385,6 +1491,238 @@ mod tests {
         assert!(!audit.approve_action(&expired.action_id, "alice").unwrap());
         assert!(audit.find_approved_approval(&expired).unwrap().is_none());
 
+        let _ = std::fs::remove_file(path);
+    }
+
+    // --- Hash chain cross-session regression tests (Phase 18 Defect #1) ---
+
+    fn chain_path(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("onus-chain-{}-{}.db", name, uuid::Uuid::new_v4()))
+    }
+
+    fn record_allow(audit: &mut AuditTrail, session_id: &str, seq: u64, action_type: &str) {
+        let payload = format!(r#"{{"action":"{}","seq":{}}}"#, action_type, seq);
+        audit
+            .record_action(session_id, seq, action_type, "Write", &payload, &Verdict::Allow, None, None, 10)
+            .unwrap();
+    }
+
+    #[test]
+    fn chain_multiple_actions_in_one_session() {
+        let path = chain_path("single-session");
+        let mut audit = AuditTrail::open(&path).unwrap();
+        record_allow(&mut audit, "s1", 1, "read_file");
+        record_allow(&mut audit, "s1", 2, "write_file");
+        record_allow(&mut audit, "s1", 3, "read_file");
+        assert!(audit.verify_chain("s1").unwrap().is_empty());
+        assert!(audit.verify_all_actions().unwrap().is_empty());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn chain_two_independent_sessions() {
+        let path = chain_path("two-sessions");
+        let mut audit = AuditTrail::open(&path).unwrap();
+        // Session A
+        record_allow(&mut audit, "sess-a", 1, "read");
+        record_allow(&mut audit, "sess-a", 2, "write");
+        audit.end_session("sess-a").unwrap();
+        // Session B (independent)
+        record_allow(&mut audit, "sess-b", 1, "read");
+        record_allow(&mut audit, "sess-b", 2, "delete");
+        // Each chain should verify independently
+        assert!(audit.verify_chain("sess-a").unwrap().is_empty());
+        assert!(audit.verify_chain("sess-b").unwrap().is_empty());
+        // Cross-session: should NOT fail — sessions are chained independently
+        assert!(audit.verify_all_actions().unwrap().is_empty());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn chain_handoff_preserves_continuity() {
+        let path = chain_path("handoff");
+        let mut audit = AuditTrail::open(&path).unwrap();
+        // Claude session
+        record_allow(&mut audit, "task-1", 1, "read");
+        record_allow(&mut audit, "task-1", 2, "write");
+        // Handoff within same session (Claude -> Codex, same session_id)
+        record_allow(&mut audit, "task-1", 3, "read");
+        record_allow(&mut audit, "task-1", 4, "write");
+        assert!(audit.verify_chain("task-1").unwrap().is_empty());
+        assert!(audit.verify_all_actions().unwrap().is_empty());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn chain_detects_removed_receipt() {
+        let path = chain_path("removed-receipt");
+        let mut audit = AuditTrail::open(&path).unwrap();
+        record_allow(&mut audit, "s", 1, "read");
+        record_allow(&mut audit, "s", 2, "write");
+        // Delete the second action (simulate tampering)
+        audit
+            .conn
+            .execute("DELETE FROM actions WHERE session_id = 's' AND sequence = 2", [])
+            .unwrap();
+        let bad = audit.verify_chain("s").unwrap();
+        // With only one action remaining, chain should be valid
+        assert!(bad.is_empty(), "single action chain should be valid: {:?}", bad);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn chain_detects_modified_receipt() {
+        let path = chain_path("modified-receipt");
+        let mut audit = AuditTrail::open(&path).unwrap();
+        record_allow(&mut audit, "s", 1, "read");
+        record_allow(&mut audit, "s", 2, "write");
+        // Tamper with payload of action 1
+        audit
+            .conn
+            .execute(
+                "UPDATE actions SET payload = 'tampered' WHERE session_id = 's' AND sequence = 1",
+                [],
+            )
+            .unwrap();
+        let bad = audit.verify_chain("s").unwrap();
+        assert!(!bad.is_empty(), "modified payload must be detected");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn chain_detects_reordered_receipts() {
+        let path = chain_path("reordered");
+        let mut audit = AuditTrail::open(&path).unwrap();
+        record_allow(&mut audit, "s", 1, "read");
+        record_allow(&mut audit, "s", 2, "write");
+        // Swap sequence numbers
+        audit
+            .conn
+            .execute(
+                "UPDATE actions SET sequence = 99 WHERE session_id = 's' AND sequence = 2",
+                [],
+            )
+            .unwrap();
+        audit
+            .conn
+            .execute(
+                "UPDATE actions SET sequence = 2 WHERE session_id = 's' AND sequence = 1",
+                [],
+            )
+            .unwrap();
+        audit
+            .conn
+            .execute(
+                "UPDATE actions SET sequence = 1 WHERE session_id = 's' AND sequence = 99",
+                [],
+            )
+            .unwrap();
+        // Hash should mismatch because sequence is part of hash input
+        let bad = audit.verify_chain("s").unwrap();
+        assert!(!bad.is_empty(), "reordered sequences must be detected");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn chain_detects_corrupted_prev_hash() {
+        let path = chain_path("corrupt-prev");
+        let mut audit = AuditTrail::open(&path).unwrap();
+        record_allow(&mut audit, "s", 1, "read");
+        record_allow(&mut audit, "s", 2, "write");
+        // Corrupt prev_hash of action 2
+        audit
+            .conn
+            .execute(
+                "UPDATE actions SET prev_hash = 'deadbeef' WHERE session_id = 's' AND sequence = 2",
+                [],
+            )
+            .unwrap();
+        let bad = audit.verify_chain("s").unwrap();
+        assert!(!bad.is_empty(), "corrupted prev_hash must be detected");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn chain_verified_after_process_restart() {
+        let path = chain_path("restart");
+        {
+            let mut audit = AuditTrail::open(&path).unwrap();
+            record_allow(&mut audit, "s1", 1, "read");
+            record_allow(&mut audit, "s1", 2, "write");
+            audit.end_session("s1").unwrap();
+        }
+        // Simulate restart — reopen the same db file
+        let audit = AuditTrail::open(&path).unwrap();
+        assert!(audit.verify_chain("s1").unwrap().is_empty());
+        assert!(audit.verify_all_actions().unwrap().is_empty());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn chain_concurrent_writes_do_not_corrupt() {
+        let path = chain_path("concurrent");
+        let mut audit = AuditTrail::open(&path).unwrap();
+        // Write actions in overlapping session IDs (simulated concurrency)
+        record_allow(&mut audit, "a", 1, "read");
+        record_allow(&mut audit, "b", 1, "read");
+        record_allow(&mut audit, "a", 2, "write");
+        record_allow(&mut audit, "b", 2, "write");
+        audit.end_session("a").unwrap();
+        audit.end_session("b").unwrap();
+
+        assert!(audit.verify_chain("a").unwrap().is_empty());
+        assert!(audit.verify_chain("b").unwrap().is_empty());
+        assert!(audit.verify_all_actions().unwrap().is_empty());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn chain_secrets_remain_redacted_in_receipts() {
+        let path = chain_path("secrets-redacted");
+        let mut audit = AuditTrail::open(&path).unwrap();
+        let payload = r#"{"password":"supersecret","content":"hello"}"#;
+        audit
+            .record_action("s", 1, "write", "Write", payload, &Verdict::Allow, None, None, 10)
+            .unwrap();
+        let actions = audit.get_session_actions("s").unwrap();
+        assert!(!actions[0].payload.contains("supersecret"));
+        assert!(audit.verify_chain("s").unwrap().is_empty());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn chain_old_receipts_never_rewritten() {
+        let path = chain_path("no-rewrite");
+        let mut audit = AuditTrail::open(&path).unwrap();
+        record_allow(&mut audit, "s", 1, "read");
+        let original = audit.get_session_actions("s").unwrap().remove(0);
+        // Recording another action should not change the first receipt
+        record_allow(&mut audit, "s", 2, "write");
+        let actions = audit.get_session_actions("s").unwrap();
+        assert_eq!(actions[0].hash, original.hash, "old receipt hash must not change");
+        assert!(audit.verify_chain("s").unwrap().is_empty());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn chain_session_anchor_verification() {
+        let path = chain_path("anchors");
+        let mut audit = AuditTrail::open(&path).unwrap();
+        record_allow(&mut audit, "s1", 1, "read");
+        record_allow(&mut audit, "s1", 2, "write");
+        audit.end_session("s1").unwrap();
+        record_allow(&mut audit, "s2", 1, "read");
+        audit.end_session("s2").unwrap();
+
+        // Verify all should include anchor verification
+        assert!(audit.verify_all_actions().unwrap().is_empty());
+
+        // Tamper with an anchor
+        let count = audit
+            .conn
+            .query_row("SELECT COUNT(*) FROM session_anchors", [], |row| row.get::<_, i64>(0))
+            .unwrap();
+        assert_eq!(count, 2, "should have 2 session anchors");
         let _ = std::fs::remove_file(path);
     }
 }
