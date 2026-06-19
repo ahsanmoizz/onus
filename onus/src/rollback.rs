@@ -138,6 +138,19 @@ pub fn create_checkpoint(
     fs::write(&manifest_path, serde_json::to_string_pretty(&manifest)?)?;
     fs::write(cp_dir.join("checkpoint_id"), &checkpoint_id)?;
 
+    // Store a copy of every tracked file inside the checkpoint directory.
+    let files_dir = cp_dir.join("files");
+    for (rel_path, _hash) in &manifest.file_entries {
+        let src = workspace_root.join(rel_path);
+        let dst = files_dir.join(rel_path);
+        if src.exists() {
+            if let Some(parent) = dst.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::copy(&src, &dst)?;
+        }
+    }
+
     Ok(manifest)
 }
 
@@ -191,6 +204,7 @@ pub fn inspect_checkpoint(checkpoint_id: &str) -> anyhow::Result<CheckpointManif
 }
 
 /// Restore workspace state to a checkpoint.
+/// Uses the real file copies stored in the checkpoint directory.
 /// Validates workspace identity first.
 pub fn restore_checkpoint(
     checkpoint_id: &str,
@@ -199,7 +213,8 @@ pub fn restore_checkpoint(
     let manifest = inspect_checkpoint(checkpoint_id)?;
 
     // Validate workspace identity
-    let canonical_ws = fs::canonicalize(workspace_root)?;
+    let canonical_ws = fs::canonicalize(workspace_root)
+        .map_err(|e| anyhow::anyhow!("cannot resolve workspace root '{}': {}", workspace_root.display(), e))?;
     let canonical_manifest = fs::canonicalize(&manifest.workspace_root)
         .unwrap_or_else(|_| manifest.workspace_root.clone());
     if canonical_ws != canonical_manifest {
@@ -213,26 +228,93 @@ pub fn restore_checkpoint(
     let rollback_id = format!("rb-{}", Uuid::new_v4());
     let now = unix_now();
     let mut operations = Vec::new();
+    let cp_files_dir = checkpoints_root().join(checkpoint_id).join("files");
 
+    // Phase 1: Restore modified / deleted files from checkpoint file copies
     for (rel_path, expected_hash) in &manifest.file_entries {
         let full_path = workspace_root.join(rel_path);
         let current_hash = sha256_file(&full_path).unwrap_or_default();
         if current_hash == *expected_hash {
             continue;
         }
-        // File differs from checkpoint — restore it
-        // (For a real checkpoint, the files would be stored in the checkpoint dir.
-        //  Here we track the manifest hash as a verification record.)
-        operations.push(RollbackOperation {
-            action_id: rel_path.clone(),
-            operation: "file_restore".to_string(),
-            status: "verified_in_manifest".to_string(),
-            detail: format!("path '{}' differs from checkpoint (current hash != manifest hash)", rel_path),
-            compensation_id: None,
-        });
+        let cp_src = cp_files_dir.join(rel_path);
+        if !cp_src.exists() {
+            operations.push(RollbackOperation {
+                action_id: rel_path.clone(),
+                operation: "file_restore".to_string(),
+                status: "failed".to_string(),
+                detail: format!("checkpoint file copy missing for '{}'", rel_path),
+                compensation_id: None,
+            });
+            continue;
+        }
+        // Ensure parent directory exists
+        if let Some(parent) = full_path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        match fs::copy(&cp_src, &full_path) {
+            Ok(_) => {
+                operations.push(RollbackOperation {
+                    action_id: rel_path.clone(),
+                    operation: "file_restore".to_string(),
+                    status: "completed".to_string(),
+                    detail: format!("restored '{}' from checkpoint", rel_path),
+                    compensation_id: None,
+                });
+            }
+            Err(e) => {
+                operations.push(RollbackOperation {
+                    action_id: rel_path.clone(),
+                    operation: "file_restore".to_string(),
+                    status: "failed".to_string(),
+                    detail: format!("failed to restore '{}': {}", rel_path, e),
+                    compensation_id: None,
+                });
+            }
+        }
     }
 
-    let status = if operations.is_empty() {
+    // Phase 2: Remove files that exist in workspace but not in checkpoint manifest
+    let mut current_entries = BTreeMap::new();
+    collect_files(workspace_root, workspace_root, &mut current_entries)?;
+    for (rel_path, _) in &current_entries {
+        if !manifest.file_entries.contains_key(rel_path) {
+            let full_path = workspace_root.join(rel_path);
+            if let Err(e) = fs::remove_file(&full_path) {
+                operations.push(RollbackOperation {
+                    action_id: rel_path.clone(),
+                    operation: "file_remove".to_string(),
+                    status: "failed".to_string(),
+                    detail: format!("failed to remove new file '{}': {}", rel_path, e),
+                    compensation_id: None,
+                });
+            } else {
+                operations.push(RollbackOperation {
+                    action_id: rel_path.clone(),
+                    operation: "file_remove".to_string(),
+                    status: "completed".to_string(),
+                    detail: format!("removed file '{}' created after checkpoint", rel_path),
+                    compensation_id: None,
+                });
+            }
+        }
+    }
+
+    // Phase 3: Verify final manifest matches checkpoint
+    let mut final_entries = BTreeMap::new();
+    collect_files(workspace_root, workspace_root, &mut final_entries)?;
+    let final_raw = serde_json::to_string(&final_entries)?;
+    let _final_hash = security::sha256_hex(&final_raw);
+
+    let all_match = manifest.file_entries == final_entries;
+    let any_failed = operations.iter().any(|op| op.status == "failed");
+    let any_ops = !operations.is_empty();
+
+    let status = if !any_ops {
+        RollbackStatus::Completed
+    } else if any_failed {
+        RollbackStatus::Partial
+    } else if all_match {
         RollbackStatus::Completed
     } else {
         RollbackStatus::Partial
@@ -248,7 +330,13 @@ pub fn restore_checkpoint(
         status,
         operations,
         receipt_id,
-        mitigation_instructions: None,
+        mitigation_instructions: if any_failed {
+            Some("Some files could not be restored. Review the failed operations.".to_string())
+        } else if !all_match && any_ops {
+            Some("Final workspace manifest does not match checkpoint manifest. Some files may differ.".to_string())
+        } else {
+            None
+        },
         started_at_unix: now,
         completed_at_unix: unix_now(),
     })
@@ -946,6 +1034,153 @@ mod tests {
         // Original action record is untouched
         assert_eq!(action.id, action.id);
 
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    // --- Checkpoint restore regression tests (Phase 18 Defect #2) ---
+
+    #[test]
+    fn test_restore_modified_file() {
+        let dir = temp_dir("restore-mod");
+        fs::write(dir.join("test.txt"), "original").unwrap();
+        let manifest = create_checkpoint("s", &dir, "initial").unwrap();
+        // Modify file after checkpoint
+        fs::write(dir.join("test.txt"), "modified").unwrap();
+        let result = restore_checkpoint(&manifest.checkpoint_id, &dir).unwrap();
+        assert_eq!(result.status, RollbackStatus::Completed, "restore should succeed: {:?}", result.operations);
+        assert_eq!(fs::read_to_string(dir.join("test.txt")).unwrap(), "original");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn test_restore_deleted_file() {
+        let dir = temp_dir("restore-del");
+        fs::write(dir.join("keep.txt"), "keep me").unwrap();
+        let manifest = create_checkpoint("s", &dir, "initial").unwrap();
+        // Delete file after checkpoint
+        fs::remove_file(dir.join("keep.txt")).unwrap();
+        assert!(!dir.join("keep.txt").exists());
+        let result = restore_checkpoint(&manifest.checkpoint_id, &dir).unwrap();
+        assert_eq!(result.status, RollbackStatus::Completed, "restore should succeed: {:?}", result.operations);
+        assert!(dir.join("keep.txt").exists(), "deleted file must be restored");
+        assert_eq!(fs::read_to_string(dir.join("keep.txt")).unwrap(), "keep me");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn test_restore_removes_new_file() {
+        let dir = temp_dir("restore-new");
+        fs::write(dir.join("original.txt"), "original").unwrap();
+        let manifest = create_checkpoint("s", &dir, "initial").unwrap();
+        // Create new file after checkpoint
+        fs::write(dir.join("new_file.txt"), "I should not exist after restore").unwrap();
+        assert!(dir.join("new_file.txt").exists());
+        let result = restore_checkpoint(&manifest.checkpoint_id, &dir).unwrap();
+        assert_eq!(result.status, RollbackStatus::Completed, "restore should succeed: {:?}", result.operations);
+        assert!(!dir.join("new_file.txt").exists(), "new file must be removed after restore");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn test_restore_preserves_unchanged_files() {
+        let dir = temp_dir("restore-unchanged");
+        fs::write(dir.join("unchanged.txt"), "stay").unwrap();
+        fs::write(dir.join("tomerge.txt"), "tomerge").unwrap();
+        let manifest = create_checkpoint("s", &dir, "initial").unwrap();
+        // Modify only one file
+        fs::write(dir.join("tomerge.txt"), "modified").unwrap();
+        let result = restore_checkpoint(&manifest.checkpoint_id, &dir).unwrap();
+        assert_eq!(result.status, RollbackStatus::Completed, "restore should succeed: {:?}", result.operations);
+        assert_eq!(fs::read_to_string(dir.join("unchanged.txt")).unwrap(), "stay");
+        assert_eq!(fs::read_to_string(dir.join("tomerge.txt")).unwrap(), "tomerge");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn test_restore_nested_directories() {
+        let dir = temp_dir("restore-nested");
+        fs::create_dir_all(dir.join("a").join("b")).unwrap();
+        fs::write(dir.join("a").join("b").join("deep.txt"), "deep content").unwrap();
+        let manifest = create_checkpoint("s", &dir, "initial").unwrap();
+        // Modify nested file
+        fs::write(dir.join("a").join("b").join("deep.txt"), "modified deep").unwrap();
+        let result = restore_checkpoint(&manifest.checkpoint_id, &dir).unwrap();
+        assert_eq!(result.status, RollbackStatus::Completed, "restore should succeed: {:?}", result.operations);
+        assert_eq!(fs::read_to_string(dir.join("a").join("b").join("deep.txt")).unwrap(), "deep content");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn test_restore_wrong_repository_fails() {
+        let dir1 = temp_dir("repo-ok");
+        let dir2 = temp_dir("repo-wrong");
+        fs::write(dir1.join("f.txt"), "data").unwrap();
+        fs::write(dir2.join("f.txt"), "data").unwrap();
+        let manifest = create_checkpoint("s", &dir1, "test").unwrap();
+        let result = restore_checkpoint(&manifest.checkpoint_id, &dir2);
+        assert!(result.is_err(), "restore to wrong workspace must fail");
+        let _ = fs::remove_dir_all(dir1);
+        let _ = fs::remove_dir_all(dir2);
+    }
+
+    #[test]
+    fn test_restore_corrupted_manifest_fails() {
+        let dir = temp_dir("corrupt-manifest");
+        fs::write(dir.join("f.txt"), "data").unwrap();
+        let manifest = create_checkpoint("s", &dir, "test").unwrap();
+        // Corrupt the manifest
+        let manifest_path = checkpoints_root().join(&manifest.checkpoint_id).join("manifest.json");
+        fs::write(&manifest_path, "not-json").unwrap();
+        let result = restore_checkpoint(&manifest.checkpoint_id, &dir);
+        assert!(result.is_err(), "restore with corrupt manifest must fail");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn test_restore_interrupted_then_repeated() {
+        let dir = temp_dir("restore-twice");
+        fs::write(dir.join("f.txt"), "original").unwrap();
+        let manifest = create_checkpoint("s", &dir, "initial").unwrap();
+        // First restore after no modification should be a no-op
+        let r1 = restore_checkpoint(&manifest.checkpoint_id, &dir).unwrap();
+        assert_eq!(r1.status, RollbackStatus::Completed, "first no-op restore: {:?}", r1.operations);
+        assert!(r1.operations.is_empty() || r1.operations.iter().all(|o| o.status == "completed"));
+        // Modify and restore again
+        fs::write(dir.join("f.txt"), "changed").unwrap();
+        let r2 = restore_checkpoint(&manifest.checkpoint_id, &dir).unwrap();
+        assert_eq!(r2.status, RollbackStatus::Completed, "second restore: {:?}", r2.operations);
+        assert_eq!(fs::read_to_string(dir.join("f.txt")).unwrap(), "original");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn test_restore_creates_receipt() {
+        let dir = temp_dir("restore-receipt");
+        fs::write(dir.join("f.txt"), "data").unwrap();
+        let manifest = create_checkpoint("s", &dir, "test").unwrap();
+        fs::write(dir.join("f.txt"), "modified").unwrap();
+        let result = restore_checkpoint(&manifest.checkpoint_id, &dir).unwrap();
+        assert!(result.receipt_id.is_some(), "restore must create receipt");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn test_restore_final_manifest_matches_checkpoint() {
+        let dir = temp_dir("final-manifest");
+        fs::write(dir.join("a.txt"), "alpha").unwrap();
+        fs::write(dir.join("b.txt"), "beta").unwrap();
+        let manifest = create_checkpoint("s", &dir, "initial").unwrap();
+        // Mutate workspace
+        fs::write(dir.join("a.txt"), "modified alpha").unwrap();
+        fs::remove_file(dir.join("b.txt")).unwrap();
+        fs::write(dir.join("c.txt"), "new file").unwrap();
+        // Restore
+        let result = restore_checkpoint(&manifest.checkpoint_id, &dir).unwrap();
+        assert_eq!(result.status, RollbackStatus::Completed, "restore: {:?}", result.operations);
+        // Verify final state matches manifest exactly
+        let mut final_entries = BTreeMap::new();
+        collect_files(&dir, &dir, &mut final_entries).unwrap();
+        assert_eq!(manifest.file_entries, final_entries, "final manifest must match checkpoint manifest");
         let _ = fs::remove_dir_all(dir);
     }
 }
