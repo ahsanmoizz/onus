@@ -26,6 +26,8 @@ pub mod uninstall;
 pub mod upgrade;
 pub mod verify;
 pub mod workspace;
+pub mod handoff;
+pub mod lease_cli;
 
 use clap::{Parser, Subcommand};
 
@@ -117,6 +119,12 @@ pub enum Commands {
 
     /// Manage memory lifecycle operations
     Memory(memory::MemoryArgs),
+
+    /// Create, import, and display cross-agent handoff manifests
+    Handoff(handoff::HandoffArgs),
+
+    /// Acquire, release, heartbeat, and manage session leases
+    Lease(lease_cli::LeaseArgs),
 }
 
 pub mod mcp_proxy;

@@ -194,6 +194,8 @@ pub mod approval;
 pub mod approval_broker;
 pub mod authority;
 pub mod rollback;
+pub mod handoff;
+pub mod lease;
 
 /// Evaluate an action request and return (verdict, rule_id, rule_name, correction).
 /// Loads the policy engine fresh — ok for one-off evaluation (CLI) but not hot-path.
