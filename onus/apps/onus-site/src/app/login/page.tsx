@@ -113,7 +113,7 @@ export default function LoginPage() {
                     />
                   </div>
                   <p className="mt-2 text-xs leading-5 text-zinc-600">
-                    Token value is held only in this page state and is not appended to the URL.
+                    The token is added only to the local console URL when you open the admin panel.
                   </p>
                 </label>
 
