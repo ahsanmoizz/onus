@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { Shield, Terminal, FileCheck, RefreshCw, Users, GitBranch, Key, Database, ArrowRight, CheckCircle, AlertTriangle, Zap, Lock, Activity, BookOpen, Download } from 'lucide-react';
@@ -124,6 +125,69 @@ function HeroSection() {
   );
 }
 
+const heroPhrases = [
+  'vague prompts',
+  'risky writes',
+  'secret leaks',
+  'silent approvals',
+  'ONUS control',
+  'missing evidence',
+  'verified rollback',
+];
+
+function HeroPhraseStack() {
+  const [activeIndex, setActiveIndex] = useState(4);
+  const [isHovering, setIsHovering] = useState(false);
+
+  useEffect(() => {
+    if (!isHovering) {
+      setActiveIndex(4);
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      setActiveIndex((current) => (current + 1) % heroPhrases.length);
+    }, 520);
+
+    return () => window.clearInterval(interval);
+  }, [isHovering]);
+
+  return (
+    <div
+      className="group mb-8 cursor-default space-y-1 text-[clamp(3.25rem,8.5vw,8rem)] font-semibold leading-[0.96] tracking-tight"
+      onMouseEnter={() => setIsHovering(true)}
+      onMouseLeave={() => setIsHovering(false)}
+      aria-label="Onus controlled action phrases"
+    >
+      {heroPhrases.map((phrase, index) => {
+        const isActive = index === activeIndex;
+        const [first, ...rest] = phrase.split(' ');
+        const last = rest.join(' ');
+
+        return (
+          <div
+            key={phrase}
+            className={`flex min-h-[0.96em] flex-wrap items-baseline gap-x-6 overflow-hidden transition-all duration-500 ${
+              isActive ? 'translate-x-0 text-white opacity-100' : 'translate-x-8 text-zinc-800 opacity-75'
+            }`}
+          >
+            <span>{first}</span>
+            {last && (
+              <span
+                className={`transition-all duration-500 ${
+                  isActive ? 'translate-y-0 text-accent opacity-100' : 'translate-y-4 text-zinc-800 opacity-75'
+                }`}
+              >
+                {last}
+              </span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function HeroSectionV2() {
   return (
     <section className="relative min-h-screen overflow-hidden bg-black px-4 pt-36 pb-16 md:pt-28">
@@ -146,16 +210,7 @@ function HeroSectionV2() {
             AI Agent Firewall - local-first control plane
           </div>
 
-          <div className="mb-8 space-y-1 text-[clamp(3.25rem,8.5vw,8rem)] font-semibold leading-[0.96] tracking-tight">
-            {['vague prompts', 'risky writes', 'secret leaks', 'silent approvals'].map((word) => (
-              <div key={word} className="text-zinc-800 transition-colors hover:text-zinc-600">{word}</div>
-            ))}
-            <div className="flex flex-wrap items-baseline gap-x-6">
-              <span className="text-white">ONUS</span>
-              <span className="text-accent">control</span>
-            </div>
-            <div className="text-zinc-800 transition-colors hover:text-zinc-600">missing evidence</div>
-          </div>
+          <HeroPhraseStack />
 
           <h1 className="mb-5 max-w-5xl text-2xl font-semibold leading-tight text-white sm:text-3xl md:text-4xl">
             <OnusScrambleLine />
@@ -206,8 +261,7 @@ function HeroSectionV2() {
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(249,115,22,0.16),transparent_45%)]" />
             <div className="relative flex min-h-[430px] items-center justify-center">
               <Entropy size={360} particleColor="#f97316" className="rounded-lg opacity-85" />
-              <div className="absolute top-6 left-6 right-6 flex items-center justify-between">
-                <BrandLogo imageClassName="h-12 w-auto opacity-95" />
+              <div className="absolute top-6 right-6 flex items-center justify-end">
                 <span className="rounded-full border border-accent/25 bg-accent/10 px-3 py-1 text-xs font-medium text-accent">
                   live control
                 </span>
