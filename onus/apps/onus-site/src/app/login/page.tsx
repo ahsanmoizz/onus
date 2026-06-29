@@ -2,12 +2,14 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, ExternalLink, KeyRound, Lock, Terminal } from 'lucide-react';
+import { ArrowLeft, ExternalLink, KeyRound, Lock, Mail } from 'lucide-react';
 import { Entropy } from '@/components/ui/entropy';
 import { FallingPattern } from '@/components/ui/falling-pattern';
+import { BrandLogo } from '@/components/brand-logo';
 
 export default function LoginPage() {
   const [consoleUrl, setConsoleUrl] = useState('http://127.0.0.1:3001');
+  const [operatorEmail, setOperatorEmail] = useState('');
   const [sessionToken, setSessionToken] = useState('');
 
   const normalizedUrl = useMemo(() => {
@@ -19,9 +21,13 @@ export default function LoginPage() {
     }
   }, [consoleUrl]);
 
+  const canOpen = Boolean(normalizedUrl && operatorEmail.includes('@') && sessionToken.trim().length >= 6);
+
   const openConsole = () => {
-    if (!normalizedUrl) return;
-    window.location.assign(normalizedUrl);
+    if (!canOpen) return;
+    const parsed = new URL(normalizedUrl);
+    parsed.searchParams.set('token', sessionToken.trim());
+    window.location.assign(parsed.toString());
   };
 
   return (
@@ -53,15 +59,13 @@ export default function LoginPage() {
           <section className="mx-auto w-full max-w-md">
             <Link href="/" className="mb-8 inline-flex items-center gap-2 text-sm text-zinc-500 transition-colors hover:text-zinc-200">
               <ArrowLeft className="h-4 w-4" />
-              Back to Onus
+              Back to site
             </Link>
 
             <div className="rounded-lg border border-white/10 bg-zinc-950/85 p-6 shadow-2xl shadow-black/50 backdrop-blur">
               <div className="mb-8">
-                <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-full bg-accent text-black">
-                  <Terminal className="h-5 w-5" />
-                </div>
-                <h1 className="text-3xl font-bold text-white">Open local console</h1>
+                <BrandLogo imageClassName="mb-5 h-16 w-auto" />
+                <h1 className="text-3xl font-bold text-white">Operator access</h1>
                 <p className="mt-3 text-sm leading-6 text-zinc-400">
                   Use this entry point for an Onus console already running on your machine.
                   No provider keys or raw secrets are sent from this website.
@@ -69,6 +73,23 @@ export default function LoginPage() {
               </div>
 
               <div className="space-y-5">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-zinc-300">Operator email</span>
+                  <div className="flex items-center rounded-md border border-zinc-800 bg-black px-4 py-3 focus-within:border-accent">
+                    <Mail className="mr-3 h-4 w-4 text-zinc-600" />
+                    <input
+                      value={operatorEmail}
+                      onChange={(event) => setOperatorEmail(event.target.value)}
+                      type="email"
+                      className="w-full bg-transparent text-sm text-white outline-none"
+                      placeholder="you@example.com"
+                    />
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-zinc-600">
+                    Used only as local operator context on this page. It is not sent to Onus cloud.
+                  </p>
+                </label>
+
                 <label className="block">
                   <span className="mb-2 block text-sm font-medium text-zinc-300">Console URL</span>
                   <input
@@ -98,16 +119,16 @@ export default function LoginPage() {
 
                 <button
                   onClick={openConsole}
-                  disabled={!normalizedUrl}
+                  disabled={!canOpen}
                   className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-accent px-5 py-3 text-sm font-semibold text-black transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Open console
+                  Access admin panel
                   <ExternalLink className="h-4 w-4" />
                 </button>
 
                 <div className="rounded-md border border-zinc-800 bg-black/70 p-4 text-xs leading-6 text-zinc-500">
-                  Start the console locally with the repository scripts or the installed `onus console` command,
-                  then return here if you want a bookmarked entry point.
+                  Start locally with <code className="text-zinc-300">onus console --port 3001 --token YOUR_TOKEN</code>,
+                  then use the same token here.
                 </div>
               </div>
             </div>

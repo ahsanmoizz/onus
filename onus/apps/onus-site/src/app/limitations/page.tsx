@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { BrandLogo } from '@/components/brand-logo';
 import { AlertTriangle, CheckCircle, Lightbulb, Shield, Terminal, Lock, GitBranch, Key, Activity, Server } from 'lucide-react';
 
 const limitations = [
@@ -137,10 +138,7 @@ export default function LimitationsPage() {
       <nav className="fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-md border-b border-zinc-800">
         <div className="max-w-4xl mx-auto px-4 h-16 flex items-center">
           <Link href="/" className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-full bg-accent flex items-center justify-center">
-              <span className="text-black text-[10px] font-bold">O</span>
-            </div>
-            <span className="font-bold text-white">Onus</span>
+            <BrandLogo imageClassName="h-9 w-auto" />
           </Link>
           <div className="ml-auto text-sm text-zinc-400 space-x-6">
             <Link href="/" className="hover:text-white transition-colors">Home</Link>

@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { BrandLogo } from '@/components/brand-logo';
 import { Cable, ArrowRight, CheckCircle } from 'lucide-react';
 
 export default function McpPage() {
@@ -10,10 +11,7 @@ export default function McpPage() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <Link href="/" className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center">
-                <span className="text-black text-xs font-bold">O</span>
-              </div>
-              <span className="font-bold text-white text-lg">Onus</span>
+              <BrandLogo imageClassName="h-9 w-auto" />
             </Link>
           </div>
         </div>

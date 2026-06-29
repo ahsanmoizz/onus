@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { ArrowRight, CheckCircle, Copy, Download, Shield, Terminal } from 'lucide-react';
+import { BrandLogo } from '@/components/brand-logo';
 
 const windowsInstall = `Invoke-WebRequest -Uri "https://raw.githubusercontent.com/ahsanmoizz/onus/main/onus/install/install-onus.ps1" -OutFile "install-onus.ps1"
 powershell -ExecutionPolicy Bypass -File install-onus.ps1
@@ -34,14 +35,13 @@ export default function InstallPage() {
     <div className="min-h-screen bg-black text-zinc-100">
       <nav className="fixed inset-x-0 top-0 z-50 border-b border-zinc-800 bg-black/85 backdrop-blur-md">
         <div className="mx-auto flex h-16 max-w-5xl items-center px-4">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-xs font-bold text-black">O</div>
-            <span className="font-bold text-white">Onus</span>
+          <Link href="/" className="flex items-center" aria-label="Onus home">
+            <BrandLogo imageClassName="h-10 w-auto" />
           </Link>
           <div className="ml-auto flex items-center gap-5 text-sm text-zinc-400">
             <Link href="/download" className="hover:text-white">Download</Link>
             <Link href="/docs/quick-start" className="hover:text-white">Quick Start</Link>
-            <Link href="/admin" className="hover:text-white">Admin Console</Link>
+            <Link href="/login" className="hover:text-white">Access</Link>
           </div>
         </div>
       </nav>

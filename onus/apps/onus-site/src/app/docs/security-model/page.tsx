@@ -1,11 +1,12 @@
 import Link from 'next/link';
+import { BrandLogo } from '@/components/brand-logo';
 
 export default function SecurityModelPage() {
   return (
     <>
       <nav className="fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-sm border-b border-zinc-800">
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
-          <Link href="/" className="text-white font-bold text-lg">Onus</Link>
+          <Link href="/" className="inline-flex items-center" aria-label="Onus home"><BrandLogo imageClassName="h-9 w-auto" /></Link>
           <div className="flex items-center gap-6 text-sm text-zinc-400">
             <Link href="/product" className="hover:text-white transition-colors">Product</Link>
             <Link href="/install" className="hover:text-white transition-colors">Install</Link>

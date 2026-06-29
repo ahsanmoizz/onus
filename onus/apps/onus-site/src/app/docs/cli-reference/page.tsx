@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { BrandLogo } from '@/components/brand-logo';
 
 const groups = [
   {
@@ -79,10 +80,12 @@ export default function CliReferencePage() {
     <div className="min-h-screen bg-black text-zinc-100">
       <nav className="fixed inset-x-0 top-0 z-50 border-b border-zinc-800 bg-black/85 backdrop-blur-sm">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
-          <Link href="/" className="text-lg font-bold text-white">Onus</Link>
+          <Link href="/" className="flex items-center" aria-label="Onus home">
+            <BrandLogo imageClassName="h-9 w-auto" />
+          </Link>
           <div className="flex items-center gap-6 text-sm text-zinc-400">
             <Link href="/install" className="hover:text-white">Install</Link>
-            <Link href="/admin" className="hover:text-white">Admin</Link>
+            <Link href="/login" className="hover:text-white">Access</Link>
             <Link href="/docs" className="text-accent">Docs</Link>
           </div>
         </div>
