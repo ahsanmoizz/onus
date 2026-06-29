@@ -15,15 +15,17 @@ cd onus/onus
 cargo build --release
 ./target/release/onus doctor`;
 
-const productionPowerShell = `$env:ONUS_STRICT="1"
+const managedPowerShell = `$env:ONUS_STRICT="1"
 $env:ONUS_MISSING_CONTRACT="block_mutating"
-$env:ONUS_LOCAL_UI_TOKEN="CHANGE_ME_LONG_RANDOM_TOKEN"
-$env:ONUS_SEMANTIC_PROVIDER="disabled"`;
-
-const optionalCloudPowerShell = `$env:ONUS_SEMANTIC_PROVIDER="cloud"
-$env:ONUS_SEMANTIC_ENDPOINT="YOUR_ENDPOINT"
-$env:ONUS_SEMANTIC_MODEL="YOUR_MODEL"
-$env:ONUS_SEMANTIC_API_KEY="YOUR_KEY"`;
+$env:ONUS_LOCAL_UI_TOKEN="GENERATED_BY_INSTALLER"
+$env:ONUS_SEMANTIC_PROVIDER="cloud"
+$env:ONUS_SEMANTIC_ENDPOINT="https://YOUR-ONUS-GATEWAY/v1/chat/completions"
+$env:ONUS_SEMANTIC_MODEL="onus-managed"
+$env:ONUS_SEMANTIC_API_KEY="ONUS_CLIENT_TOKEN"
+$env:ONUS_SEMANTIC_FALLBACK="fail_closed"
+$env:ONUS_SEMANTIC_FAIL_CLOSED_CRITICAL="1"
+$env:ONUS_SEMANTIC_PRIVACY_MODE="strict"
+$env:ONUS_SEMANTIC_REDACT="1"`;
 
 function CodeBlock({ label, code }: { label: string; code: string }) {
   return (
@@ -65,7 +67,7 @@ export default function InstallPage() {
           <h1 className="mb-4 text-4xl font-bold text-white">Install Onus like a normal developer tool.</h1>
           <p className="text-lg leading-8 text-zinc-400">
             Install the `onus` binary, run `onus doctor`, start the daemon, then open the local admin console.
-            Deterministic mode works offline. LLM providers are optional and must be configured in the daemon environment.
+            Semantic review is designed to use the managed Onus gateway, so end users do not bring model-provider keys.
           </p>
         </div>
 
@@ -109,18 +111,13 @@ export default function InstallPage() {
             Production-use checklist
           </h2>
           <p className="mb-4 text-sm leading-6 text-zinc-400">
-            Start production-like use with strict deterministic settings. This default does not require an LLM provider,
-            does not send semantic-review data to a model, and does not require users to bring API keys.
+            The installer creates `onus.env` with strict policy defaults and managed semantic-review settings.
+            The token is an Onus gateway client token, not the raw model-provider key stored on the VPS.
           </p>
-          <CodeBlock label="PowerShell production defaults" code={productionPowerShell} />
-          <p className="mb-4 mt-5 text-sm leading-6 text-zinc-500">
-            Optional only: enable cloud semantic review if you deliberately want a model-backed reviewer. Provider usage,
-            privacy terms, quotas, and costs belong to the configured provider account.
-          </p>
-          <CodeBlock label="Optional cloud semantic review" code={optionalCloudPowerShell} />
+          <CodeBlock label="Managed Onus client config" code={managedPowerShell} />
           <div className="grid gap-3 md:grid-cols-2">
             {[
-              'Use deterministic-only mode first and confirm policies with `onus rules`.',
+              'Provider credentials stay on the Onus VPS gateway, never in the public repo or user prompts.',
               'Run `onus doctor` and resolve failures before connecting agents.',
               'Use `onus setup --claude`, `--codex`, or `--cursor` only for integrations you will actually route through Onus.',
               'Open the local admin console with an unpredictable token: `onus console --token <random>`.',

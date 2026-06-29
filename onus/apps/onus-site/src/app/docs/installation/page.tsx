@@ -4,13 +4,11 @@ import { BrandLogo } from '@/components/brand-logo';
 export default function InstallationPage() {
   const productionPowerShell = `$env:ONUS_STRICT="1"
 $env:ONUS_MISSING_CONTRACT="block_mutating"
-$env:ONUS_LOCAL_UI_TOKEN="CHANGE_ME_LONG_RANDOM_TOKEN"
-$env:ONUS_SEMANTIC_PROVIDER="disabled"`;
-
-  const optionalCloudPowerShell = `$env:ONUS_SEMANTIC_PROVIDER="cloud"
-$env:ONUS_SEMANTIC_ENDPOINT="YOUR_ENDPOINT"
-$env:ONUS_SEMANTIC_MODEL="YOUR_MODEL"
-$env:ONUS_SEMANTIC_API_KEY="YOUR_KEY"`;
+$env:ONUS_LOCAL_UI_TOKEN="GENERATED_BY_INSTALLER"
+$env:ONUS_SEMANTIC_PROVIDER="cloud"
+$env:ONUS_SEMANTIC_ENDPOINT="https://YOUR-ONUS-GATEWAY/v1/chat/completions"
+$env:ONUS_SEMANTIC_MODEL="onus-managed"
+$env:ONUS_SEMANTIC_API_KEY="ONUS_CLIENT_TOKEN"`;
 
   return (
     <div className="min-h-screen">
@@ -40,7 +38,7 @@ $env:ONUS_SEMANTIC_API_KEY="YOUR_KEY"`;
           <li><strong className="text-white">Build:</strong> <code className="text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded text-sm font-mono">cargo build --release</code> (requires Rust, only for building from source)</li>
           <li><strong className="text-white">Disk:</strong> Approximately 50 MB for the Onus binary</li>
           <li><strong className="text-white">Memory:</strong> 256 MB minimum, 1 GB recommended when using local LLM evaluation</li>
-          <li><strong className="text-white">Network:</strong> Outbound HTTPS access to the provider API endpoint if using Cloud or Local evaluation modes. Deterministic-only mode works fully offline.</li>
+          <li><strong className="text-white">Network:</strong> Outbound HTTPS access to the managed Onus gateway for semantic review. Deterministic-only mode works offline but is less intelligent.</li>
         </ul>
 
         <h2 className="text-xl font-semibold text-white mt-10 mb-3">Quick Install (Recommended)</h2>
@@ -103,17 +101,12 @@ cargo build --release</pre>
         <h2 className="text-xl font-semibold text-white mt-10 mb-3">Production Settings</h2>
         <p className="text-zinc-300 leading-relaxed mb-4">
           Use these defaults before connecting real agents. They keep Onus strict, block mutating actions without a task contract,
-          require a local UI token, and keep semantic review disabled so no LLM key or provider spend is required.
+          require a local UI token, and route semantic review through the managed Onus gateway.
         </p>
         <pre className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 text-sm text-zinc-300 font-mono overflow-x-auto my-4"><code>{productionPowerShell}</code></pre>
         <p className="text-zinc-400 leading-relaxed mb-4">
-          Replace <code className="text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded text-sm font-mono">CHANGE_ME_LONG_RANDOM_TOKEN</code> with a long random value and keep it private.
+          The client token is issued by the Onus gateway. It is not the raw model-provider key.
         </p>
-        <p className="text-zinc-300 leading-relaxed mb-4">
-          Optional only: if you intentionally enable cloud semantic review, configure a provider endpoint and key in the daemon
-          environment. This is not required for deterministic production use.
-        </p>
-        <pre className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 text-sm text-zinc-300 font-mono overflow-x-auto my-4"><code>{optionalCloudPowerShell}</code></pre>
 
         <h2 className="text-xl font-semibold text-white mt-10 mb-3">Next Steps</h2>
         <p className="text-zinc-300 leading-relaxed mb-4">

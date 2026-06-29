@@ -59,7 +59,7 @@ export default function SecurityPage() {
               {[
                 { boundary: 'Agent → Onus', trust: 'Untrusted', detail: 'All agent actions are evaluated before execution. Onus does not trust the agent.' },
                 { boundary: 'Onus → Host', trust: 'Controlled', detail: 'Onus runs on the host with user-level permissions. Actions are filtered before reaching the shell.' },
-                { boundary: 'Onus → Provider API', trust: 'TLS-protected', detail: 'Semantic analysis data is sent to the configured provider over TLS. Payloads may contain task context.' },
+                { boundary: 'Onus → Managed Gateway', trust: 'TLS-protected', detail: 'Semantic analysis data is sent to the Onus gateway over TLS. The gateway holds the provider key server-side.' },
                 { boundary: 'Human → Approval Server', trust: 'Local', detail: 'Approval UI runs on localhost:9191 with token auth, CSRF protection, and rate limiting.' },
                 { boundary: 'L3 Workspace → Host', trust: 'Isolated', detail: 'bubblewrap provides filesystem/network isolation. Host paths are explicitly excluded from the container.' },
               ].map((item, i) => (
@@ -166,7 +166,7 @@ export default function SecurityPage() {
           </h2>
           <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
             <p className="text-zinc-400 text-sm mb-4">
-              Tier 2 evaluation uses a configured provider (OpenAI, Anthropic, or local llama.cpp) to
+              Tier 2 evaluation uses the managed Onus gateway or a local/self-hosted adapter to
               analyze actions for contextual risks that pattern matching alone cannot detect. The
               semantic evaluator produces a verdict (ALLOW, BLOCK, ESCALATE) with structured reasoning
               and a correction if the action is rejected.
@@ -185,7 +185,7 @@ export default function SecurityPage() {
               <div className="bg-black/30 rounded-lg p-4">
                 <h4 className="text-xs font-semibold text-white uppercase tracking-wider mb-2">Provider modes</h4>
                 <ul className="text-xs text-zinc-400 space-y-1">
-                  <li><strong className="text-white">Cloud:</strong> OpenAI / Anthropic API with full analysis</li>
+                  <li><strong className="text-white">Managed Gateway:</strong> Onus-hosted provider bridge with server-side credentials</li>
                   <li><strong className="text-white">Local:</strong> llama.cpp on localhost</li>
                   <li><strong className="text-white">Deterministic-only:</strong> No semantic analysis, Tier 1 only</li>
                   <li><strong className="text-white">Disabled:</strong> No governance at all (not recommended)</li>
@@ -240,7 +240,7 @@ export default function SecurityPage() {
             <div className="space-y-3 text-sm">
               {[
                 { risk: 'L1 only mode', desc: 'If the agent does not use the cooperative hook, no governance is applied. Upgrade to L2+ for enforced routing.' },
-                { risk: 'Semantic provider compromise', desc: 'If the configured semantic provider API is compromised or returns malicious results, the semantic evaluation layer is untrustworthy. Fall back to deterministic-only mode.' },
+                { risk: 'Semantic gateway/provider compromise', desc: 'If the managed gateway or upstream semantic provider is compromised, the semantic evaluation layer is untrustworthy. Deterministic denials still remain authoritative.' },
                 { risk: 'Zero-day exploit in bubblewrap', desc: 'L3 isolation depends on bubblewrap correctness. A kernel or bubblewrap escape would break container boundaries. This is a host OS security dependency.' },
                 { risk: 'Approval UI localhost binding', desc: 'The approval server binds to localhost:9191. If an attacker gains local user access, they could interact with the approval UI.' },
                 { risk: 'Side-channel leaks', desc: 'Memory contents, receipt data, and action payloads are stored on disk. Full disk encryption is recommended but not enforced by Onus.' },

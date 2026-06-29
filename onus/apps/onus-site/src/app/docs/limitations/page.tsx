@@ -50,8 +50,8 @@ export default function LimitationsPage() {
         <h2 className="text-xl font-semibold text-white mt-10 mb-3">Provider Limitations</h2>
         <div className="space-y-4 mb-6">
           <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
-            <h3 className="text-white font-medium mb-1">Provider Keys Required for Semantic Mode</h3>
-            <p className="text-sm text-zinc-400">Semantic (LLM-based) evaluation requires a provider API key. Deterministic mode — which enforces rules, patterns, and policies without any AI — works fully offline and requires no provider key.</p>
+            <h3 className="text-white font-medium mb-1">Managed Gateway Required for Semantic Mode</h3>
+            <p className="text-sm text-zinc-400">Semantic evaluation requires either the managed Onus gateway or a self-hosted/local provider. Normal users should not configure raw model-provider keys on their machine.</p>
           </div>
           <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
             <h3 className="text-white font-medium mb-1">Provider-dependent Quality</h3>

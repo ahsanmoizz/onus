@@ -244,6 +244,39 @@ fi
 
 # ── Run doctor ──
 if [ "$DRY_RUN" != 1 ]; then
+    step "Creating Onus configuration..."
+    CONFIG_FILE="${CONFIG_DIR}/onus.env"
+    if [ ! -f "$CONFIG_FILE" ]; then
+        UI_TOKEN="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
+        SEMANTIC_ENDPOINT="${ONUS_MANAGED_SEMANTIC_ENDPOINT:-https://YOUR-ONUS-GATEWAY/v1/chat/completions}"
+        SEMANTIC_TOKEN="${ONUS_MANAGED_CLIENT_TOKEN:-PASTE_ONUS_CLIENT_TOKEN_AFTER_ACTIVATION}"
+        cat > "$CONFIG_FILE" <<EOF
+# Onus Configuration
+# Created by installer on $(date +%Y-%m-%d)
+# This file is loaded automatically by the Onus CLI.
+
+ONUS_STRICT=1
+ONUS_MISSING_CONTRACT=block_mutating
+ONUS_LOCAL_UI_TOKEN=${UI_TOKEN}
+
+# Managed semantic review.
+# This token is an Onus gateway client token, not a raw model-provider key.
+ONUS_SEMANTIC_PROVIDER=cloud
+ONUS_SEMANTIC_ENDPOINT=${SEMANTIC_ENDPOINT}
+ONUS_SEMANTIC_MODEL=onus-managed
+ONUS_SEMANTIC_API_KEY=${SEMANTIC_TOKEN}
+ONUS_SEMANTIC_FALLBACK=fail_closed
+ONUS_SEMANTIC_FAIL_CLOSED_CRITICAL=1
+ONUS_SEMANTIC_PRIVACY_MODE=strict
+ONUS_SEMANTIC_REDACT=1
+ONUS_SEMANTIC_TIMEOUT_MS=30000
+EOF
+        chmod 600 "$CONFIG_FILE"
+        ok "Created production-safe config at ${CONFIG_FILE}"
+    else
+        ok "Config already exists at ${CONFIG_FILE} (preserved)"
+    fi
+
     step "Running Onus diagnostics..."
     echo ""
     "$BINARY_PATH" doctor 2>&1 || true
