@@ -40,7 +40,7 @@ function Navbar() {
             </Link>
           </div>
         </div>
-        <div className="flex gap-5 overflow-x-auto border-t border-zinc-900 py-3 text-sm lg:hidden">
+        <div className="flex gap-5 overflow-x-auto border-t border-zinc-900 py-3 text-sm [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:hidden">
           {links.map(([label, href]) => (
             <Link key={href} href={href} className="whitespace-nowrap text-zinc-300 hover:text-accent">
               {label}
@@ -125,65 +125,62 @@ function HeroSection() {
   );
 }
 
-const heroPhrases = [
-  'vague prompts',
-  'risky writes',
-  'secret leaks',
-  'silent approvals',
-  'ONUS control',
-  'missing evidence',
-  'verified rollback',
+const heroActions = [
+  'control',
+  'verify',
+  'protect',
+  'approve',
+  'rollback',
+  'audit',
+  'contain',
 ];
 
 function HeroPhraseStack() {
-  const [activeIndex, setActiveIndex] = useState(4);
+  const [activeIndex, setActiveIndex] = useState(0);
   const [isHovering, setIsHovering] = useState(false);
 
   useEffect(() => {
-    if (!isHovering) {
-      setActiveIndex(4);
-      return;
-    }
-
     const interval = window.setInterval(() => {
-      setActiveIndex((current) => (current + 1) % heroPhrases.length);
-    }, 520);
+      setActiveIndex((current) => (current + 1) % heroActions.length);
+    }, isHovering ? 360 : 1500);
 
     return () => window.clearInterval(interval);
   }, [isHovering]);
 
   return (
     <div
-      className="group mb-8 cursor-default space-y-1 text-[clamp(3.25rem,8.5vw,8rem)] font-semibold leading-[0.96] tracking-tight"
+      className="group mb-8 cursor-default text-[clamp(4rem,10vw,8rem)] font-semibold leading-[0.96] tracking-tight"
       onMouseEnter={() => setIsHovering(true)}
       onMouseLeave={() => setIsHovering(false)}
-      aria-label="Onus controlled action phrases"
+      aria-label="Onus animated action phrase"
     >
-      {heroPhrases.map((phrase, index) => {
-        const isActive = index === activeIndex;
-        const [first, ...rest] = phrase.split(' ');
-        const last = rest.join(' ');
+      <div className="flex flex-wrap items-baseline gap-x-6 overflow-hidden">
+        <span className="text-white">ONUS</span>
+        <span className="relative inline-grid h-[1em] min-w-[0] overflow-hidden pr-2 text-accent">
+          {heroActions.map((word, index) => {
+            const offset = index - activeIndex;
+            const normalizedOffset =
+              offset < -heroActions.length / 2
+                ? offset + heroActions.length
+                : offset > heroActions.length / 2
+                  ? offset - heroActions.length
+                  : offset;
 
-        return (
-          <div
-            key={phrase}
-            className={`flex min-h-[0.96em] flex-wrap items-baseline gap-x-6 overflow-hidden transition-all duration-500 ${
-              isActive ? 'translate-x-0 text-white opacity-100' : 'translate-x-8 text-zinc-800 opacity-75'
-            }`}
-          >
-            <span>{first}</span>
-            {last && (
+            return (
               <span
-                className={`transition-all duration-500 ${
-                  isActive ? 'translate-y-0 text-accent opacity-100' : 'translate-y-4 text-zinc-800 opacity-75'
-                }`}
+                key={word}
+                className="col-start-1 row-start-1 whitespace-nowrap transition-all duration-500 ease-out"
+                style={{
+                  opacity: normalizedOffset === 0 ? 1 : 0,
+                  transform: `translateY(${normalizedOffset * 105}%)`,
+                }}
               >
-                {last}
+                {word}
               </span>
-            )}
-          </div>
-        );
-      })}
+            );
+          })}
+        </span>
+      </div>
     </div>
   );
 }
