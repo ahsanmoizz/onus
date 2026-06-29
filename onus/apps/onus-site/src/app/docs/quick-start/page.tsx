@@ -35,6 +35,11 @@ const steps = [
 ];
 
 export default function QuickStartPage() {
+  const productionPowerShell = `$env:ONUS_STRICT="1"
+$env:ONUS_MISSING_CONTRACT="block_mutating"
+$env:ONUS_LOCAL_UI_TOKEN="CHANGE_ME_LONG_RANDOM_TOKEN"
+$env:ONUS_SEMANTIC_PROVIDER="disabled"`;
+
   return (
     <div className="min-h-screen bg-black text-zinc-100">
       <nav className="fixed inset-x-0 top-0 z-50 border-b border-zinc-800 bg-black/85 backdrop-blur-sm">
@@ -70,6 +75,11 @@ export default function QuickStartPage() {
 
         <section className="mt-8 rounded-lg border border-zinc-800 bg-zinc-950 p-5">
           <h2 className="mb-3 text-lg font-semibold text-white">What is production-like use?</h2>
+          <p className="mb-4 text-sm leading-6 text-zinc-400">
+            Use these defaults first. They keep Onus strict and offline for semantic review, so users do not need LLM keys
+            or provider spend to run the guardian.
+          </p>
+          <pre className="mb-4 overflow-x-auto rounded-md border border-zinc-800 bg-black p-4 text-sm leading-6 text-zinc-300"><code>{productionPowerShell}</code></pre>
           <ul className="space-y-2 text-sm leading-6 text-zinc-400">
             <li>Use deterministic policies first; add semantic providers only after provider credentials are configured outside the browser.</li>
             <li>Use the console token and do not expose local dashboard or approval ports publicly.</li>

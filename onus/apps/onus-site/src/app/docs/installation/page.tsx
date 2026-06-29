@@ -2,6 +2,16 @@ import Link from 'next/link';
 import { BrandLogo } from '@/components/brand-logo';
 
 export default function InstallationPage() {
+  const productionPowerShell = `$env:ONUS_STRICT="1"
+$env:ONUS_MISSING_CONTRACT="block_mutating"
+$env:ONUS_LOCAL_UI_TOKEN="CHANGE_ME_LONG_RANDOM_TOKEN"
+$env:ONUS_SEMANTIC_PROVIDER="disabled"`;
+
+  const optionalCloudPowerShell = `$env:ONUS_SEMANTIC_PROVIDER="cloud"
+$env:ONUS_SEMANTIC_ENDPOINT="YOUR_ENDPOINT"
+$env:ONUS_SEMANTIC_MODEL="YOUR_MODEL"
+$env:ONUS_SEMANTIC_API_KEY="YOUR_KEY"`;
+
   return (
     <div className="min-h-screen">
       <nav className="fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-sm border-b border-zinc-800">
@@ -89,6 +99,21 @@ cargo build --release</pre>
         <p className="text-zinc-300 leading-relaxed mb-4">
           The <code className="text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded text-sm font-mono">onus doctor</code> command checks that the binary is correctly installed, the daemon can start, and all required directories and configuration files are in place. If any issues are found, it will provide guidance for resolving them.
         </p>
+
+        <h2 className="text-xl font-semibold text-white mt-10 mb-3">Production Settings</h2>
+        <p className="text-zinc-300 leading-relaxed mb-4">
+          Use these defaults before connecting real agents. They keep Onus strict, block mutating actions without a task contract,
+          require a local UI token, and keep semantic review disabled so no LLM key or provider spend is required.
+        </p>
+        <pre className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 text-sm text-zinc-300 font-mono overflow-x-auto my-4"><code>{productionPowerShell}</code></pre>
+        <p className="text-zinc-400 leading-relaxed mb-4">
+          Replace <code className="text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded text-sm font-mono">CHANGE_ME_LONG_RANDOM_TOKEN</code> with a long random value and keep it private.
+        </p>
+        <p className="text-zinc-300 leading-relaxed mb-4">
+          Optional only: if you intentionally enable cloud semantic review, configure a provider endpoint and key in the daemon
+          environment. This is not required for deterministic production use.
+        </p>
+        <pre className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 text-sm text-zinc-300 font-mono overflow-x-auto my-4"><code>{optionalCloudPowerShell}</code></pre>
 
         <h2 className="text-xl font-semibold text-white mt-10 mb-3">Next Steps</h2>
         <p className="text-zinc-300 leading-relaxed mb-4">

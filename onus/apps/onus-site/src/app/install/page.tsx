@@ -15,6 +15,16 @@ cd onus/onus
 cargo build --release
 ./target/release/onus doctor`;
 
+const productionPowerShell = `$env:ONUS_STRICT="1"
+$env:ONUS_MISSING_CONTRACT="block_mutating"
+$env:ONUS_LOCAL_UI_TOKEN="CHANGE_ME_LONG_RANDOM_TOKEN"
+$env:ONUS_SEMANTIC_PROVIDER="disabled"`;
+
+const optionalCloudPowerShell = `$env:ONUS_SEMANTIC_PROVIDER="cloud"
+$env:ONUS_SEMANTIC_ENDPOINT="YOUR_ENDPOINT"
+$env:ONUS_SEMANTIC_MODEL="YOUR_MODEL"
+$env:ONUS_SEMANTIC_API_KEY="YOUR_KEY"`;
+
 function CodeBlock({ label, code }: { label: string; code: string }) {
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-950">
@@ -98,6 +108,16 @@ export default function InstallPage() {
             <Shield className="h-5 w-5 text-accent" />
             Production-use checklist
           </h2>
+          <p className="mb-4 text-sm leading-6 text-zinc-400">
+            Start production-like use with strict deterministic settings. This default does not require an LLM provider,
+            does not send semantic-review data to a model, and does not require users to bring API keys.
+          </p>
+          <CodeBlock label="PowerShell production defaults" code={productionPowerShell} />
+          <p className="mb-4 mt-5 text-sm leading-6 text-zinc-500">
+            Optional only: enable cloud semantic review if you deliberately want a model-backed reviewer. Provider usage,
+            privacy terms, quotas, and costs belong to the configured provider account.
+          </p>
+          <CodeBlock label="Optional cloud semantic review" code={optionalCloudPowerShell} />
           <div className="grid gap-3 md:grid-cols-2">
             {[
               'Use deterministic-only mode first and confirm policies with `onus rules`.',
