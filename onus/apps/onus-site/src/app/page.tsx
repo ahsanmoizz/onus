@@ -4,33 +4,48 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { Shield, Terminal, FileCheck, RefreshCw, Users, GitBranch, Key, Database, ArrowRight, CheckCircle, AlertTriangle, Zap, Lock, Activity, BookOpen, Download } from 'lucide-react';
 import { Entropy } from '@/components/ui/entropy';
-import { FallingPattern } from '@/components/ui/falling-pattern';
 import { BrandLogo } from '@/components/brand-logo';
 import { OnusScrambleLine, RainingOnusHero } from '@/components/ui/modern-animated-hero-section';
 
 function Navbar() {
+  const links = [
+    ['Product', '/product'],
+    ['Docs', '/docs'],
+    ['Download', '/download'],
+    ['Install', '/install'],
+    ['Security', '/security'],
+    ['Integrations', '/integrations'],
+  ];
+
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-md border-b border-zinc-800">
+    <nav className="fixed top-0 left-0 right-0 z-50 border-b border-zinc-800 bg-black/88 backdrop-blur-md">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <Link href="/" className="flex items-center" aria-label="Onus home">
             <BrandLogo imageClassName="h-10 w-auto" />
           </Link>
-          <div className="hidden md:flex items-center gap-6 text-sm">
-            <Link href="/product" className="text-zinc-400 hover:text-white transition-colors">Product</Link>
-            <Link href="/docs" className="text-zinc-400 hover:text-white transition-colors">Docs</Link>
-            <Link href="/download" className="text-zinc-400 hover:text-white transition-colors">Download</Link>
-            <Link href="/install" className="text-zinc-400 hover:text-white transition-colors">Install</Link>
-            <Link href="/security" className="text-zinc-400 hover:text-white transition-colors">Security</Link>
-            <Link href="/integrations" className="text-zinc-400 hover:text-white transition-colors">Integrations</Link>
+          <div className="hidden lg:flex items-center gap-6 text-sm">
+            {links.map(([label, href]) => (
+              <Link key={href} href={href} className="text-zinc-300 hover:text-accent transition-colors">
+                {label}
+              </Link>
+            ))}
           </div>
           <div className="flex items-center gap-3">
-            <a href="https://github.com/ahsanmoizz/onus" className="text-sm text-zinc-400 hover:text-white transition-colors">GitHub</a>
-            <Link href="/login" className="inline-flex items-center gap-2 rounded-full border border-white/20 px-4 py-2 text-sm font-medium text-zinc-200 transition-colors hover:bg-white/10">
+            <a href="https://github.com/ahsanmoizz/onus" className="hidden text-sm text-zinc-300 hover:text-accent transition-colors sm:inline">GitHub</a>
+            <Link href="/login" className="inline-flex items-center gap-2 rounded-full border border-accent/35 px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent hover:text-black">
               <Lock className="h-4 w-4" />
               Access
             </Link>
           </div>
+        </div>
+        <div className="flex gap-5 overflow-x-auto border-t border-zinc-900 py-3 text-sm lg:hidden">
+          {links.map(([label, href]) => (
+            <Link key={href} href={href} className="whitespace-nowrap text-zinc-300 hover:text-accent">
+              {label}
+            </Link>
+          ))}
+          <a href="https://github.com/ahsanmoizz/onus" className="whitespace-nowrap text-zinc-300 hover:text-accent">GitHub</a>
         </div>
       </div>
     </nav>
@@ -111,11 +126,12 @@ function HeroSection() {
 
 function HeroSectionV2() {
   return (
-    <section className="relative min-h-screen overflow-hidden bg-[#0647f7] px-4 pt-28 pb-16">
-      <div className="absolute inset-x-0 top-16 h-px bg-white/20" />
-      <div className="absolute inset-y-0 left-[4vw] hidden w-px bg-white/15 md:block" />
-      <div className="absolute inset-y-0 right-[4vw] hidden w-px bg-white/15 md:block" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_80%_18%,rgba(255,255,255,0.16),transparent_28%),linear-gradient(180deg,rgba(6,71,247,0.08),rgba(2,18,86,0.38))]" />
+    <section className="relative min-h-screen overflow-hidden bg-black px-4 pt-36 pb-16 md:pt-28">
+      <div className="absolute inset-x-0 top-16 h-px bg-zinc-800" />
+      <div className="absolute inset-y-0 left-[4vw] hidden w-px bg-zinc-900 md:block" />
+      <div className="absolute inset-y-0 right-[4vw] hidden w-px bg-zinc-900 md:block" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_18%,rgba(249,115,22,0.16),transparent_30%),radial-gradient(circle_at_82%_72%,rgba(249,115,22,0.09),transparent_34%)]" />
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.14),#000_92%)]" />
       <RainingOnusHero />
 
       <div className="relative mx-auto grid min-h-[calc(100vh-7rem)] max-w-7xl items-center gap-10 lg:grid-cols-[1.08fr_0.92fr]">
@@ -125,37 +141,41 @@ function HeroSectionV2() {
           transition={{ duration: 0.6 }}
           className="max-w-5xl"
         >
-          <div className="mb-8 inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3 py-1 text-xs font-medium text-white/80 backdrop-blur">
-            <Zap className="h-3 w-3 text-[#ffe55c]" />
+          <div className="mb-8 inline-flex items-center gap-2 rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-medium text-accent backdrop-blur">
+            <Zap className="h-3 w-3" />
             AI Agent Firewall - local-first control plane
           </div>
 
           <div className="mb-8 space-y-1 text-[clamp(3.25rem,8.5vw,8rem)] font-semibold leading-[0.96] tracking-tight">
             {['vague prompts', 'risky writes', 'secret leaks', 'silent approvals'].map((word) => (
-              <div key={word} className="text-white/24">{word}</div>
+              <div key={word} className="text-zinc-800 transition-colors hover:text-zinc-600">{word}</div>
             ))}
             <div className="flex flex-wrap items-baseline gap-x-6">
               <span className="text-white">ONUS</span>
-              <span className="text-[#ffe55c]">control</span>
+              <span className="text-accent">control</span>
             </div>
-            <div className="text-white/24">missing evidence</div>
+            <div className="text-zinc-800 transition-colors hover:text-zinc-600">missing evidence</div>
           </div>
 
           <h1 className="mb-5 max-w-5xl text-2xl font-semibold leading-tight text-white sm:text-3xl md:text-4xl">
             <OnusScrambleLine />
           </h1>
 
-          <p className="mb-8 max-w-2xl text-base leading-7 text-blue-50/82 sm:text-lg">
+          <p className="mb-8 max-w-2xl text-base leading-7 text-zinc-400 sm:text-lg">
             Onus turns vague requests into bounded task contracts, evaluates each routed action,
             binds risky approvals to exact payloads, and rejects completion when evidence is missing.
           </p>
 
           <div className="flex flex-col gap-3 sm:flex-row">
-            <Link href="/install" className="inline-flex items-center justify-center gap-2 rounded-sm bg-[#06123c] px-7 py-3 text-sm font-semibold text-white transition-colors hover:bg-[#020817]">
+            <Link href="/install" className="inline-flex items-center justify-center gap-2 rounded-full bg-accent px-7 py-3 text-sm font-semibold text-black transition-colors hover:bg-accent-hover">
               <Download className="h-4 w-4" />
               Install Onus
             </Link>
-            <Link href="/login" className="inline-flex items-center justify-center gap-2 rounded-sm border border-white/35 px-7 py-3 text-sm font-medium text-white transition-colors hover:bg-white/10">
+            <Link href="/docs" className="inline-flex items-center justify-center gap-2 rounded-full border border-zinc-700 px-7 py-3 text-sm font-medium text-zinc-200 transition-colors hover:border-accent/60 hover:text-accent">
+              <BookOpen className="h-4 w-4" />
+              Read docs
+            </Link>
+            <Link href="/login" className="inline-flex items-center justify-center gap-2 rounded-full border border-zinc-800 px-7 py-3 text-sm font-medium text-zinc-400 transition-colors hover:border-accent/40 hover:text-accent">
               <Terminal className="h-4 w-4" />
               Access local console
             </Link>
@@ -168,9 +188,9 @@ function HeroSectionV2() {
               ['L3', 'Linux workspace proof'],
               ['L4', 'Narrow authority proof'],
             ].map(([level, label]) => (
-              <div key={level} className="rounded-sm border border-white/20 bg-white/[0.08] p-3 backdrop-blur">
+              <div key={level} className="rounded-lg border border-zinc-800 bg-zinc-950/70 p-3 backdrop-blur transition-colors hover:border-accent/35">
                 <div className="text-sm font-semibold text-white">{level}</div>
-                <div className="mt-1 text-xs leading-5 text-blue-50/70">{label}</div>
+                <div className="mt-1 text-xs leading-5 text-zinc-500">{label}</div>
               </div>
             ))}
           </div>
@@ -182,19 +202,25 @@ function HeroSectionV2() {
           transition={{ duration: 0.7, delay: 0.15 }}
           className="relative mx-auto w-full max-w-[500px]"
         >
-          <div className="relative overflow-hidden rounded-sm border border-white/20 bg-white/10 p-6 shadow-2xl shadow-blue-950/40 backdrop-blur">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.2),transparent_42%)]" />
+          <div className="relative overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/80 p-6 shadow-2xl shadow-orange-950/20 backdrop-blur">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(249,115,22,0.16),transparent_45%)]" />
             <div className="relative flex min-h-[430px] items-center justify-center">
-              <BrandLogo imageClassName="w-full max-w-[360px] opacity-95" />
+              <Entropy size={360} particleColor="#f97316" className="rounded-lg opacity-85" />
+              <div className="absolute top-6 left-6 right-6 flex items-center justify-between">
+                <BrandLogo imageClassName="h-12 w-auto opacity-95" />
+                <span className="rounded-full border border-accent/25 bg-accent/10 px-3 py-1 text-xs font-medium text-accent">
+                  live control
+                </span>
+              </div>
               <div className="absolute bottom-4 left-4 right-4 space-y-3">
                 {[
                   ['Prompt intake', 'READY_WITH_SAFE_CONTRACT'],
                   ['Action policy', 'DENY beats approval'],
                   ['Completion', 'Evidence required'],
                 ].map(([label, value]) => (
-                  <div key={label} className="flex items-center justify-between rounded-sm border border-white/20 bg-[#06123c]/80 px-3 py-2 text-xs">
-                    <span className="text-blue-50/65">{label}</span>
-                    <span className="font-mono text-white">{value}</span>
+                  <div key={label} className="flex items-center justify-between rounded-md border border-zinc-800 bg-black/85 px-3 py-2 text-xs">
+                    <span className="text-zinc-500">{label}</span>
+                    <span className="font-mono text-accent">{value}</span>
                   </div>
                 ))}
               </div>
@@ -297,13 +323,13 @@ function ArchitectureSection() {
           </div>
 
           <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
-            <Activity className="w-6 h-6 text-blue-400 mb-3" />
+            <Activity className="w-6 h-6 text-accent mb-3" />
             <h3 className="font-semibold text-white mb-2">L1-L4 Enforcement</h3>
             <p className="text-zinc-400 text-sm leading-relaxed">Progressive enforcement levels:</p>
             <ul className="mt-3 space-y-1.5">
               {['L1: Best-effort hook (cooperative)', 'L2: Onus-routed actions', 'L3: Process/FS/Net containment', 'L4: Controlled authority (disposable creds)'].map((level, i) => (
                 <li key={i} className="text-xs text-zinc-500 flex items-center gap-2">
-                  <span className="w-1 h-1 rounded-full bg-blue-500" /> {level}
+                  <span className="w-1 h-1 rounded-full bg-accent" /> {level}
                 </li>
               ))}
             </ul>

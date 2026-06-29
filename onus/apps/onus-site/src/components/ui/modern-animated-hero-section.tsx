@@ -85,13 +85,13 @@ function ScrambledPhrase() {
     if (!elementRef.current) return;
 
     const phrases = [
-      'agents',
-      'actions',
-      'prompts',
-      'approvals',
-      'evidence',
-      'rollbacks',
-      'sessions',
+      'prompt intake',
+      'policy gates',
+      'approval binding',
+      'secret redaction',
+      'receipt evidence',
+      'rollback paths',
+      'session scope',
     ];
     let active = true;
     let counter = 0;
@@ -117,15 +117,15 @@ function ScrambledPhrase() {
   return (
     <span
       ref={elementRef}
-      className="font-mono text-[#ffe55c] drop-shadow-[0_0_20px_rgba(255,229,92,0.26)]"
+      className="font-mono text-accent drop-shadow-[0_0_20px_rgba(249,115,22,0.35)]"
     >
-      agents
+      prompt intake
     </span>
   );
 }
 
 function createCharacters(): Character[] {
-  const allChars = 'ONUSCONTROLVERIFYPROTECT0123456789[]{}<>/\\#@';
+  const allChars = 'ONUSCONTROLVERIFYPROTECTAPPROVEAUDIT0123456789[]{}<>/\\#@';
   return Array.from({ length: 150 }, () => ({
     char: allChars[Math.floor(Math.random() * allChars.length)],
     x: Math.random() * 100,
@@ -167,7 +167,7 @@ export function RainingOnusHero() {
           previous.map((char) => {
             const y = char.y + char.speed;
             if (y < 105) return { ...char, y };
-            const chars = 'ONUSCONTROLVERIFYPROTECT0123456789[]{}<>/\\#@';
+            const chars = 'ONUSCONTROLVERIFYPROTECTAPPROVEAUDIT0123456789[]{}<>/\\#@';
             return {
               ...char,
               x: Math.random() * 100,
@@ -192,14 +192,14 @@ export function RainingOnusHero() {
           key={index}
           className={`absolute select-none font-mono transition-[color,opacity,transform,text-shadow] duration-100 ${
             activeIndices.has(index)
-              ? 'z-10 text-[#ffe55c] opacity-100'
-              : 'text-white/18 opacity-40'
+              ? 'z-10 text-accent opacity-100'
+              : 'text-zinc-700/70 opacity-50'
           }`}
           style={{
             left: `${char.x}%`,
             top: `${char.y}%`,
             transform: `translate(-50%, -50%) ${activeIndices.has(index) ? 'scale(1.18)' : 'scale(1)'}`,
-            textShadow: activeIndices.has(index) ? '0 0 14px rgba(255,229,92,0.62)' : 'none',
+            textShadow: activeIndices.has(index) ? '0 0 14px rgba(249,115,22,0.72)' : 'none',
             fontSize: activeIndices.has(index) ? '1.22rem' : '1rem',
             willChange: 'transform, top',
           }}
@@ -209,7 +209,7 @@ export function RainingOnusHero() {
       ))}
       <style jsx global>{`
         .dud {
-          color: #ffe55c;
+          color: #f97316;
           opacity: 0.78;
         }
       `}</style>
@@ -220,7 +220,7 @@ export function RainingOnusHero() {
 export function OnusScrambleLine() {
   return (
     <span>
-      Govern <ScrambledPhrase /> before they touch production.
+      Govern <ScrambledPhrase /> before agents execute.
     </span>
   );
 }
