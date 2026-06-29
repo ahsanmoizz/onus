@@ -1,6 +1,6 @@
 # Onus Windows Installer
 # Usage:
-#   powershell -ExecutionPolicy Bypass -c "iwr -useb https://github.com/Gitlawb/onus/releases/latest/download/install.ps1 | iex"
+#   powershell -ExecutionPolicy Bypass -c "iwr -useb https://github.com/ahsanmoizz/onus/releases/latest/download/install.ps1 | iex"
 
 param(
     [string]$Version = "latest",
@@ -41,9 +41,9 @@ New-Item -ItemType Directory -Force -Path $RulesDir | Out-Null
 
 # ── Download binary ──
 if ($Version -eq "latest") {
-    $DownloadUrl = "https://github.com/Gitlawb/onus/releases/latest/download/onus-windows-${Arch}.exe"
+    $DownloadUrl = "https://github.com/ahsanmoizz/onus/releases/latest/download/onus-windows-${Arch}.exe"
 } else {
-    $DownloadUrl = "https://github.com/Gitlawb/onus/releases/download/${Version}/onus-windows-${Arch}.exe"
+    $DownloadUrl = "https://github.com/ahsanmoizz/onus/releases/download/${Version}/onus-windows-${Arch}.exe"
 }
 
 Write-Host "Downloading..."

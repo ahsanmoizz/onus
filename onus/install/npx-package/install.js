@@ -10,7 +10,7 @@ const os = require('os');
 const path = require('path');
 
 const VERSION = process.env.ONUS_VERSION || 'latest';
-const REPO = 'Gitlawb/onus';
+const REPO = 'ahsanmoizz/onus';
 
 console.log('');
 console.log('╔══════════════════════════════════════════════╗');

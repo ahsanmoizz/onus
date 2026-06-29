@@ -1,6 +1,6 @@
 # Onus Python SDK
 
-Python bindings for the [Onus](https://github.com/Gitlawb/onus) AI Agent Firewall.
+Python bindings for the [Onus](https://github.com/ahsanmoizz/onus) AI Agent Firewall.
 
 ```python
 from onus import OnusClient
@@ -17,7 +17,7 @@ pip install onus
 ```
 
 Requires the `onus` binary on your PATH. Install from:
-https://github.com/Gitlawb/onus/releases
+https://github.com/ahsanmoizz/onus/releases
 
 ## Quick Start
 

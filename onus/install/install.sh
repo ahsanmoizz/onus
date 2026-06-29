@@ -3,12 +3,12 @@
 # Downloads the Onus binary, installs default rules, wires Claude Code hook.
 #
 # Usage:
-#   curl -fsSL https://github.com/Gitlawb/onus/releases/latest/download/install.sh | bash
-#   curl -fsSL https://github.com/Gitlawb/onus/releases/latest/download/install.sh | bash -s -- v0.1.0
+#   curl -fsSL https://github.com/ahsanmoizz/onus/releases/latest/download/install.sh | bash
+#   curl -fsSL https://github.com/ahsanmoizz/onus/releases/latest/download/install.sh | bash -s -- v0.1.0
 
 set -euo pipefail
 
-REPO="Gitlawb/onus"
+REPO="ahsanmoizz/onus"
 VERSION="${1:-latest}"
 
 # ── Detect platform ──

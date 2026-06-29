@@ -28,6 +28,10 @@ pub mod verify;
 pub mod workspace;
 pub mod handoff;
 pub mod lease_cli;
+pub mod start;
+pub mod stop;
+pub mod restart;
+pub mod console;
 
 use clap::{Parser, Subcommand};
 
@@ -125,6 +129,20 @@ pub enum Commands {
 
     /// Acquire, release, heartbeat, and manage session leases
     Lease(lease_cli::LeaseArgs),
+
+    // ── Convenience aliases ────────────────────────────────────────────────
+
+    /// Start the daemon (convenience alias for `onus daemon start`)
+    Start(start::StartArgs),
+
+    /// Stop the daemon (convenience alias for `onus daemon stop`)
+    Stop(stop::StopArgs),
+
+    /// Restart the daemon (convenience alias for stop + start)
+    Restart(restart::RestartArgs),
+
+    /// Launch the Onus Console (convenience alias for `onus dashboard`)
+    Console(console::ConsoleArgs),
 }
 
 pub mod mcp_proxy;

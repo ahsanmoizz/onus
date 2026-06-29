@@ -105,7 +105,7 @@ New-Item -ItemType Directory -Path $TestDir -Force | Out-Null
 Push-Location $TestDir
 try {
     git init
-    git config user.email "test@onus.dev"
+    git config user.email "test@example.invalid"
     git config user.name "Onus Continuity Test"
     New-Item -ItemType Directory -Path "src" -Force | Out-Null
     Set-Content -Path "README.md" -Value "# Continuity Test Project`n`nTask: Create src/main.py that prints 'Hello from Claude'"

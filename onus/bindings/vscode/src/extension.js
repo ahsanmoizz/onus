@@ -286,7 +286,7 @@ function updateStatusBar() {
 
     if (!binary) {
         statusBarItem.text = '$(shield) Onus: not found';
-        statusBarItem.tooltip = 'Onus binary not found. Install from github.com/Gitlawb/onus';
+        statusBarItem.tooltip = 'Onus binary not found. Install from github.com/ahsanmoizz/onus';
         statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
         statusBarItem.command = { command: 'onus.openLog', title: 'Open Log' };
     } else if (!enabled) {
@@ -368,7 +368,7 @@ function activate(context) {
             const enabled = cfg.get('enabled', true);
 
             if (!binary) {
-                vscode.window.showErrorMessage('Onus binary not found. Install from https://github.com/Gitlawb/onus/releases');
+                vscode.window.showErrorMessage('Onus binary not found. Install from https://github.com/ahsanmoizz/onus/releases');
             } else if (enabled) {
                 vscode.window.showInformationMessage(`Onus firewall ACTIVE — binary: ${binary}`);
             } else {
@@ -394,7 +394,7 @@ function activate(context) {
             'Get Onus'
         ).then(selection => {
             if (selection === 'Get Onus') {
-                vscode.env.openExternal(vscode.Uri.parse('https://github.com/Gitlawb/onus/releases'));
+                vscode.env.openExternal(vscode.Uri.parse('https://github.com/ahsanmoizz/onus/releases'));
             }
         });
     }

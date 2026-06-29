@@ -1,0 +1,42 @@
+name: Frontend CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  site-and-console:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: onus/package-lock.json
+
+      - name: Install workspace dependencies
+        working-directory: onus
+        run: npm ci
+
+      - name: Typecheck public site
+        working-directory: onus/apps/onus-site
+        run: npx tsc --noEmit --pretty false
+
+      - name: Build public site
+        working-directory: onus/apps/onus-site
+        run: npm run build
+
+      - name: Typecheck local console
+        working-directory: onus/apps/onus-console
+        run: npx tsc --noEmit --pretty false
+
+      - name: Build local console
+        working-directory: onus/apps/onus-console
+        run: npm run build

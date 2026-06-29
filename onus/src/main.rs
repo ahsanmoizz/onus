@@ -40,6 +40,12 @@ fn main() -> anyhow::Result<()> {
         onus_core::cli::Commands::Memory(args) => onus_core::cli::memory::run(args)?,
         onus_core::cli::Commands::Handoff(args) => onus_core::cli::handoff::run(args)?,
         onus_core::cli::Commands::Lease(args) => onus_core::cli::lease_cli::run(args)?,
+
+        // ── Convenience aliases ────────────────────────────────────────────
+        onus_core::cli::Commands::Start(args) => onus_core::cli::start::run(args)?,
+        onus_core::cli::Commands::Stop(args) => onus_core::cli::stop::run(args)?,
+        onus_core::cli::Commands::Restart(args) => onus_core::cli::restart::run(args)?,
+        onus_core::cli::Commands::Console(args) => onus_core::cli::console::run(args)?,
     }
 
     Ok(())

@@ -1,0 +1,8 @@
+{
+  "name": "onus",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
+}

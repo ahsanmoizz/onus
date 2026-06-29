@@ -214,7 +214,7 @@ pub fn run(args: RulesArgs) -> anyhow::Result<()> {
         }
 
         RulesCommand::Pull => {
-            let url = "https://raw.githubusercontent.com/Gitlawb/onus/main/rules/default.toml";
+            let url = "https://raw.githubusercontent.com/ahsanmoizz/onus/main/onus/rules/default.toml";
             println!("Fetching latest community rules from {}", url);
 
             let body =

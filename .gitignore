@@ -14,6 +14,12 @@ reality_demo_workspace/
 # Dependency directories
 node_modules/
 
+# Frontend build output
+.next/
+out/
+dist/
+*.tsbuildinfo
+
 # VS Code extension test downloads
 .vscode-test/
 onus/bindings/vscode/.vscode-test/

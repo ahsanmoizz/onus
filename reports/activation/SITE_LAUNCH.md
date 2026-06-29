@@ -38,7 +38,7 @@ The site makes the following claims that are **supported** by the current codeba
 ## Claims that are **unsupported**:
 
 1. **`pip install onus`** — The Python package is not published. This is aspirational.
-2. **`curl -fsSL https://github.com/Gitlawb/onus/releases/...`** — The install script URL does not exist as a published release. The site should use `cargo build` instructions.
+2. **`curl -fsSL https://github.com/ahsanmoizz/onus/releases/...`** — The install script URL does not exist as a published release. The site should use `cargo build` instructions.
 3. **"Threat intelligence", "Behavioral clustering"** — T3 "Learned" section describes future functionality not yet implemented.
 
 ## Unsupported claim fix

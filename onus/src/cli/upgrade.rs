@@ -25,7 +25,7 @@ fn download_url() -> String {
     };
 
     format!(
-        "https://github.com/Gitlawb/onus/releases/latest/download/onus-{}-{}.{}",
+        "https://github.com/ahsanmoizz/onus/releases/latest/download/onus-{}-{}.{}",
         os, arch, ext
     )
 }
@@ -42,7 +42,7 @@ pub fn run() -> anyhow::Result<()> {
     println!();
 
     // Try to fetch the latest version info from GitHub.
-    let version_url = "https://api.github.com/repos/Gitlawb/onus/releases/latest";
+    let version_url = "https://api.github.com/repos/ahsanmoizz/onus/releases/latest";
     let version_info = fetch_url(version_url);
     match version_info {
         Ok(body) => {
@@ -68,7 +68,7 @@ pub fn run() -> anyhow::Result<()> {
     println!("  2. Replace: {}", current_exe.display());
     println!();
     println!("  Or re-run the installer:");
-    println!("     curl -fsSL https://github.com/Gitlawb/onus/releases/latest/download/install.sh | bash");
+    println!("     curl -fsSL https://github.com/ahsanmoizz/onus/releases/latest/download/install.sh | bash");
     println!();
     println!("  Config and rules are preserved during upgrade.");
     println!("  Restart the daemon after upgrading:");
