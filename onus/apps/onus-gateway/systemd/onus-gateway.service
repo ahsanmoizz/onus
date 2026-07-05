@@ -1,0 +1,22 @@
+[Unit]
+Description=Onus managed semantic gateway
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=onus
+Group=onus
+WorkingDirectory=/opt/onus-gateway
+EnvironmentFile=/opt/onus-gateway/.env
+ExecStart=/usr/bin/node /opt/onus-gateway/src/server.mjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/onus-gateway
+
+[Install]
+WantedBy=multi-user.target

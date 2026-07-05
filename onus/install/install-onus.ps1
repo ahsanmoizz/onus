@@ -259,17 +259,32 @@ if (-not $NoPath -and -not $DryRun) {
 Invoke-Step "Creating configuration..." {
     $configFile = "$ConfigDir\onus.env"
     if (-not (Test-Path $configFile)) {
+        $uiToken = [guid]::NewGuid().ToString("N") + [guid]::NewGuid().ToString("N")
+        $semanticEndpoint = if ($env:ONUS_MANAGED_SEMANTIC_ENDPOINT) { $env:ONUS_MANAGED_SEMANTIC_ENDPOINT } else { "https://YOUR-ONUS-GATEWAY/v1/chat/completions" }
+        $semanticToken = if ($env:ONUS_MANAGED_CLIENT_TOKEN) { $env:ONUS_MANAGED_CLIENT_TOKEN } else { "PASTE_ONUS_CLIENT_TOKEN_AFTER_ACTIVATION" }
 @"
 # Onus Configuration
 # Created by installer on $(Get-Date -Format 'yyyy-MM-dd')
-# Unset values use built-in defaults.
+# This file is loaded automatically by the Onus CLI.
 
-# ONUS_MODE=guardian
-# ONUS_PROVIDER=deterministic
-# ONUS_LOG_LEVEL=info
+ONUS_STRICT=1
+ONUS_MISSING_CONTRACT=block_mutating
+ONUS_LOCAL_UI_TOKEN=$uiToken
+
+# Managed semantic review.
+# This token is an Onus gateway client token, not a raw model-provider key.
+ONUS_SEMANTIC_PROVIDER=cloud
+ONUS_SEMANTIC_ENDPOINT=$semanticEndpoint
+ONUS_SEMANTIC_MODEL=onus-managed
+ONUS_SEMANTIC_API_KEY=$semanticToken
+ONUS_SEMANTIC_FALLBACK=fail_closed
+ONUS_SEMANTIC_FAIL_CLOSED_CRITICAL=1
+ONUS_SEMANTIC_PRIVACY_MODE=strict
+ONUS_SEMANTIC_REDACT=1
+ONUS_SEMANTIC_TIMEOUT_MS=30000
 
 "@ | Out-File -FilePath $configFile -Encoding utf8
-        Write-OK "Created placeholder config at $configFile"
+        Write-OK "Created production-safe config at $configFile"
     } else {
         Write-OK "Config already exists at $configFile (preserved)"
     }

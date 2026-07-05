@@ -12,7 +12,7 @@ LOCKED_DOCUMENTS: tuple[str, ...] = (
     "MANIFESTO.md",
     "SPEC.md",
     "docs/ONUS_ACCEPTANCE_TESTS.md",
-    "docs/Onus_current_state.md",
+    "docs/ONUS_CURRENT_STATE.md",
     "docs/ONUS_IMPLEMENTATION_ROADMAP.md",
     "docs/ONUS_PRODUCT_VISION.md",
     "docs/ONUS_SECURITY_REQUIREMENTS.md",
@@ -45,8 +45,8 @@ def normalize_manifest_path(path: str) -> str:
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
+        content = handle.read().replace(b"\r\n", b"\n")
+        digest.update(content)
     return digest.hexdigest()
 
 

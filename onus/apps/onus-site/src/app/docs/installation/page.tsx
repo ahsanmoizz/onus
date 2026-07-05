@@ -1,11 +1,20 @@
 import Link from 'next/link';
+import { BrandLogo } from '@/components/brand-logo';
 
 export default function InstallationPage() {
+  const productionPowerShell = `$env:ONUS_STRICT="1"
+$env:ONUS_MISSING_CONTRACT="block_mutating"
+$env:ONUS_LOCAL_UI_TOKEN="GENERATED_BY_INSTALLER"
+$env:ONUS_SEMANTIC_PROVIDER="cloud"
+$env:ONUS_SEMANTIC_ENDPOINT="https://YOUR-ONUS-GATEWAY/v1/chat/completions"
+$env:ONUS_SEMANTIC_MODEL="onus-managed"
+$env:ONUS_SEMANTIC_API_KEY="ONUS_CLIENT_TOKEN"`;
+
   return (
     <div className="min-h-screen">
       <nav className="fixed top-0 left-0 right-0 z-50 bg-black/80 backdrop-blur-sm border-b border-zinc-800">
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
-          <Link href="/" className="text-white font-bold text-lg">Onus</Link>
+          <Link href="/" className="inline-flex items-center" aria-label="Onus home"><BrandLogo imageClassName="h-9 w-auto" /></Link>
           <div className="flex items-center gap-6 text-sm text-zinc-400">
             <Link href="/product" className="hover:text-white transition-colors">Product</Link>
             <Link href="/install" className="hover:text-white transition-colors">Install</Link>
@@ -29,7 +38,7 @@ export default function InstallationPage() {
           <li><strong className="text-white">Build:</strong> <code className="text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded text-sm font-mono">cargo build --release</code> (requires Rust, only for building from source)</li>
           <li><strong className="text-white">Disk:</strong> Approximately 50 MB for the Onus binary</li>
           <li><strong className="text-white">Memory:</strong> 256 MB minimum, 1 GB recommended when using local LLM evaluation</li>
-          <li><strong className="text-white">Network:</strong> Outbound HTTPS access to the provider API endpoint if using Cloud or Local evaluation modes. Deterministic-only mode works fully offline.</li>
+          <li><strong className="text-white">Network:</strong> Outbound HTTPS access to the managed Onus gateway for semantic review. Deterministic-only mode works offline but is less intelligent.</li>
         </ul>
 
         <h2 className="text-xl font-semibold text-white mt-10 mb-3">Quick Install (Recommended)</h2>
@@ -87,6 +96,16 @@ cargo build --release</pre>
         <pre className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 text-sm text-zinc-300 font-mono overflow-x-auto my-4">onus doctor</pre>
         <p className="text-zinc-300 leading-relaxed mb-4">
           The <code className="text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded text-sm font-mono">onus doctor</code> command checks that the binary is correctly installed, the daemon can start, and all required directories and configuration files are in place. If any issues are found, it will provide guidance for resolving them.
+        </p>
+
+        <h2 className="text-xl font-semibold text-white mt-10 mb-3">Production Settings</h2>
+        <p className="text-zinc-300 leading-relaxed mb-4">
+          Use these defaults before connecting real agents. They keep Onus strict, block mutating actions without a task contract,
+          require a local UI token, and route semantic review through the managed Onus gateway.
+        </p>
+        <pre className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 text-sm text-zinc-300 font-mono overflow-x-auto my-4"><code>{productionPowerShell}</code></pre>
+        <p className="text-zinc-400 leading-relaxed mb-4">
+          The client token is issued by the Onus gateway. It is not the raw model-provider key.
         </p>
 
         <h2 className="text-xl font-semibold text-white mt-10 mb-3">Next Steps</h2>

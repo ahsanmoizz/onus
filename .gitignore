@@ -41,3 +41,8 @@ runtime-verification/**/secrets/.env
 
 # Logs
 *.log
+
+# Local environment files
+.env
+.env.*
+!.env.example

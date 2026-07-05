@@ -5,7 +5,7 @@
   "locked_documents": [
     {
       "path": "AGENTS.md",
-      "sha256": "557da52b4ad1d3bc663decd8adef271f45ad1fa468b14f279b337bdfc4a19138"
+      "sha256": "0c69a2d57ba572624fab3caf7143ff4fdddff70c006b4d0d893b8e57eeaf689f"
     },
     {
       "path": "MANIFESTO.md",
@@ -20,8 +20,8 @@
       "sha256": "0d0bf045676e4aca38b25475b632034242b2bfe5ea0d7f48abca81d18b6bf5ab"
     },
     {
-      "path": "docs/Onus_current_state.md",
-      "sha256": "3d707bb2312fd8393d3d9692820e70064ae9981a4be6cb44ae1e10e7dbe51ab7"
+      "path": "docs/ONUS_CURRENT_STATE.md",
+      "sha256": "a17830349d542e11d9825891eafb1311095ade45d3ffbda07a34d03e5709c484"
     },
     {
       "path": "docs/ONUS_IMPLEMENTATION_ROADMAP.md",
@@ -41,7 +41,7 @@
     },
     {
       "path": "docs/Onus_Whitepaper.txt",
-      "sha256": "5af59605acab7af6feb48713d213b75c485a1c898e857d66229799eed5baeccc"
+      "sha256": "1d703627c0d97a588e0314e8b477554b196efa19725bca6b90184871af35e9a6"
     }
   ]
 }

@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { Activity, AlertTriangle, BookOpen, Cpu, Database, FileCheck, GitBranch, Key, Lock, RefreshCw, Server, Settings, Shield, Terminal, Users, Zap } from 'lucide-react';
+import { BrandLogo } from '@/components/brand-logo';
 
 const sections = [
   {
@@ -26,7 +27,7 @@ const sections = [
     category: 'Use and Manage',
     icon: Zap,
     items: [
-      { title: 'Admin Console', href: '/admin', desc: 'Local dashboard/admin panel started with `onus console`.', icon: Server },
+      { title: 'Console Access', href: '/login', desc: 'Password/token-gated local dashboard access started with `onus console`.', icon: Server },
       { title: 'Running Governed Tasks', href: '/docs/running-governed-tasks', desc: 'Run actions through Onus-owned or routed execution surfaces.', icon: Terminal },
       { title: 'Approvals', href: '/docs/approvals', desc: 'Human approval workflow with exact payload binding.', icon: Users },
       { title: 'Checkpoint & Rollback', href: '/docs/checkpoint-rollback', desc: 'Supported rollback and honest unsupported states.', icon: RefreshCw },
@@ -89,14 +90,13 @@ export default function DocsPage() {
     <div className="min-h-screen bg-black text-zinc-100">
       <nav className="fixed inset-x-0 top-0 z-50 border-b border-zinc-800 bg-black/85 backdrop-blur-md">
         <div className="mx-auto flex h-16 max-w-6xl items-center px-4">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-black">O</div>
-            <span className="font-bold text-white">Onus</span>
+          <Link href="/" className="flex items-center" aria-label="Onus home">
+            <BrandLogo imageClassName="h-9 w-auto" />
           </Link>
           <div className="ml-auto space-x-6 text-sm text-zinc-400">
             <Link href="/download" className="hover:text-white">Download</Link>
             <Link href="/install" className="hover:text-white">Install</Link>
-            <Link href="/admin" className="hover:text-white">Admin</Link>
+            <Link href="/login" className="hover:text-white">Access</Link>
           </div>
         </div>
       </nav>

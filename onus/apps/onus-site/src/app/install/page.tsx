@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { ArrowRight, CheckCircle, Copy, Download, Shield, Terminal } from 'lucide-react';
+import { BrandLogo } from '@/components/brand-logo';
 
 const windowsInstall = `Invoke-WebRequest -Uri "https://raw.githubusercontent.com/ahsanmoizz/onus/main/onus/install/install-onus.ps1" -OutFile "install-onus.ps1"
 powershell -ExecutionPolicy Bypass -File install-onus.ps1
@@ -13,6 +14,18 @@ const sourceBuild = `git clone https://github.com/ahsanmoizz/onus.git
 cd onus/onus
 cargo build --release
 ./target/release/onus doctor`;
+
+const managedPowerShell = `$env:ONUS_STRICT="1"
+$env:ONUS_MISSING_CONTRACT="block_mutating"
+$env:ONUS_LOCAL_UI_TOKEN="GENERATED_BY_INSTALLER"
+$env:ONUS_SEMANTIC_PROVIDER="cloud"
+$env:ONUS_SEMANTIC_ENDPOINT="https://YOUR-ONUS-GATEWAY/v1/chat/completions"
+$env:ONUS_SEMANTIC_MODEL="onus-managed"
+$env:ONUS_SEMANTIC_API_KEY="ONUS_CLIENT_TOKEN"
+$env:ONUS_SEMANTIC_FALLBACK="fail_closed"
+$env:ONUS_SEMANTIC_FAIL_CLOSED_CRITICAL="1"
+$env:ONUS_SEMANTIC_PRIVACY_MODE="strict"
+$env:ONUS_SEMANTIC_REDACT="1"`;
 
 function CodeBlock({ label, code }: { label: string; code: string }) {
   return (
@@ -34,14 +47,13 @@ export default function InstallPage() {
     <div className="min-h-screen bg-black text-zinc-100">
       <nav className="fixed inset-x-0 top-0 z-50 border-b border-zinc-800 bg-black/85 backdrop-blur-md">
         <div className="mx-auto flex h-16 max-w-5xl items-center px-4">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent text-xs font-bold text-black">O</div>
-            <span className="font-bold text-white">Onus</span>
+          <Link href="/" className="flex items-center" aria-label="Onus home">
+            <BrandLogo imageClassName="h-10 w-auto" />
           </Link>
           <div className="ml-auto flex items-center gap-5 text-sm text-zinc-400">
             <Link href="/download" className="hover:text-white">Download</Link>
             <Link href="/docs/quick-start" className="hover:text-white">Quick Start</Link>
-            <Link href="/admin" className="hover:text-white">Admin Console</Link>
+            <Link href="/login" className="hover:text-white">Access</Link>
           </div>
         </div>
       </nav>
@@ -55,7 +67,7 @@ export default function InstallPage() {
           <h1 className="mb-4 text-4xl font-bold text-white">Install Onus like a normal developer tool.</h1>
           <p className="text-lg leading-8 text-zinc-400">
             Install the `onus` binary, run `onus doctor`, start the daemon, then open the local admin console.
-            Deterministic mode works offline. LLM providers are optional and must be configured in the daemon environment.
+            Semantic review is designed to use the managed Onus gateway, so end users do not bring model-provider keys.
           </p>
         </div>
 
@@ -98,9 +110,14 @@ export default function InstallPage() {
             <Shield className="h-5 w-5 text-accent" />
             Production-use checklist
           </h2>
+          <p className="mb-4 text-sm leading-6 text-zinc-400">
+            The installer creates `onus.env` with strict policy defaults and managed semantic-review settings.
+            The token is an Onus gateway client token, not the raw model-provider key stored on the VPS.
+          </p>
+          <CodeBlock label="Managed Onus client config" code={managedPowerShell} />
           <div className="grid gap-3 md:grid-cols-2">
             {[
-              'Use deterministic-only mode first and confirm policies with `onus rules`.',
+              'Provider credentials stay on the Onus VPS gateway, never in the public repo or user prompts.',
               'Run `onus doctor` and resolve failures before connecting agents.',
               'Use `onus setup --claude`, `--codex`, or `--cursor` only for integrations you will actually route through Onus.',
               'Open the local admin console with an unpredictable token: `onus console --token <random>`.',

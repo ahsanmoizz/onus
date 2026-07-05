@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
+import { BrandLogo } from '@/components/brand-logo';
 import {
   LayoutDashboard,
   Terminal,
@@ -60,11 +61,11 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
       )}>
         <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-full bg-accent flex items-center justify-center">
-              <span className="text-black text-xs font-bold">O</span>
-            </div>
-            <span className="font-semibold text-white">Onus Console</span>
+          <Link href="/" className="flex items-center gap-2" aria-label="Onus console home">
+            <BrandLogo imageClassName="h-9 w-auto" />
+            <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.22em] text-zinc-500">
+              Console
+            </span>
           </Link>
           <button className="lg:hidden text-zinc-400" onClick={() => setSidebarOpen(false)}>
             <X className="w-5 h-5" />

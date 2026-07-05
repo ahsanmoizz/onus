@@ -6,11 +6,12 @@ import { cn } from '@/lib/utils';
 interface EntropyProps {
   className?: string;
   size?: number;
+  particleColor?: string;
 }
 
 type Velocity = { x: number; y: number };
 
-export function Entropy({ className = '', size = 400 }: EntropyProps) {
+export function Entropy({ className = '', size = 400, particleColor = '#ffffff' }: EntropyProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -27,8 +28,6 @@ export function Entropy({ className = '', size = 400 }: EntropyProps) {
     canvas.style.width = `${size}px`;
     canvas.style.height = `${size}px`;
     context.scale(dpr, dpr);
-
-    const particleColor = '#ffffff';
 
     class Particle {
       x: number;
@@ -164,7 +163,7 @@ export function Entropy({ className = '', size = 400 }: EntropyProps) {
     return () => {
       cancelAnimationFrame(animationId);
     };
-  }, [size]);
+  }, [particleColor, size]);
 
   return (
     <div className={cn('relative overflow-hidden bg-black', className)} style={{ width: size, height: size }}>

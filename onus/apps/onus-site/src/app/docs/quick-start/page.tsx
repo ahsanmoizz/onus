@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { BrandLogo } from '@/components/brand-logo';
 
 const steps = [
   {
@@ -18,8 +19,8 @@ const steps = [
   },
   {
     title: '4. Check a task before an agent starts',
-    body: 'Prompt Intake Guardian classifies the request and proposes a safe task contract when possible.',
-    code: 'onus intake --prompt "Fix the login bug and keep tests enabled." --provider disabled',
+    body: 'Prompt Intake Guardian classifies the request and proposes a safe task contract when possible. Managed semantic review is used when the Onus gateway token is configured.',
+    code: 'onus intake --prompt "Fix the login bug and keep tests enabled."',
   },
   {
     title: '5. Connect an agent through a routed surface',
@@ -34,14 +35,24 @@ const steps = [
 ];
 
 export default function QuickStartPage() {
+  const productionPowerShell = `$env:ONUS_STRICT="1"
+$env:ONUS_MISSING_CONTRACT="block_mutating"
+$env:ONUS_LOCAL_UI_TOKEN="GENERATED_BY_INSTALLER"
+$env:ONUS_SEMANTIC_PROVIDER="cloud"
+$env:ONUS_SEMANTIC_ENDPOINT="https://YOUR-ONUS-GATEWAY/v1/chat/completions"
+$env:ONUS_SEMANTIC_MODEL="onus-managed"
+$env:ONUS_SEMANTIC_API_KEY="ONUS_CLIENT_TOKEN"`;
+
   return (
     <div className="min-h-screen bg-black text-zinc-100">
       <nav className="fixed inset-x-0 top-0 z-50 border-b border-zinc-800 bg-black/85 backdrop-blur-sm">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
-          <Link href="/" className="text-lg font-bold text-white">Onus</Link>
+          <Link href="/" className="flex items-center" aria-label="Onus home">
+            <BrandLogo imageClassName="h-9 w-auto" />
+          </Link>
           <div className="flex items-center gap-6 text-sm text-zinc-400">
             <Link href="/install" className="hover:text-white">Install</Link>
-            <Link href="/admin" className="hover:text-white">Admin</Link>
+            <Link href="/login" className="hover:text-white">Access</Link>
             <Link href="/docs" className="text-accent">Docs</Link>
           </div>
         </div>
@@ -67,8 +78,13 @@ export default function QuickStartPage() {
 
         <section className="mt-8 rounded-lg border border-zinc-800 bg-zinc-950 p-5">
           <h2 className="mb-3 text-lg font-semibold text-white">What is production-like use?</h2>
+          <p className="mb-4 text-sm leading-6 text-zinc-400">
+            Use these defaults first. They keep Onus strict and route semantic review through the managed Onus gateway,
+            so users do not need model-provider keys or provider accounts.
+          </p>
+          <pre className="mb-4 overflow-x-auto rounded-md border border-zinc-800 bg-black p-4 text-sm leading-6 text-zinc-300"><code>{productionPowerShell}</code></pre>
           <ul className="space-y-2 text-sm leading-6 text-zinc-400">
-            <li>Use deterministic policies first; add semantic providers only after provider credentials are configured outside the browser.</li>
+            <li>Provider credentials are configured only on the VPS gateway, outside the browser and outside the public repo.</li>
             <li>Use the console token and do not expose local dashboard or approval ports publicly.</li>
             <li>Use Linux L3 workspaces before claiming process/filesystem/network containment.</li>
             <li>Use L4 authority only for disposable controlled operations until independently verified for your environment.</li>
@@ -80,8 +96,8 @@ export default function QuickStartPage() {
           <Link href="/docs/cli-reference" className="rounded-full bg-accent px-5 py-3 text-sm font-semibold text-black hover:bg-accent-hover">
             CLI Reference
           </Link>
-          <Link href="/admin" className="rounded-full border border-zinc-700 px-5 py-3 text-sm text-zinc-200 hover:bg-zinc-900">
-            Admin Console
+          <Link href="/login" className="rounded-full border border-zinc-700 px-5 py-3 text-sm text-zinc-200 hover:bg-zinc-900">
+            Access Console
           </Link>
         </div>
       </main>

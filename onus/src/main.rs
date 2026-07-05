@@ -5,6 +5,8 @@
 use clap::Parser;
 
 fn main() -> anyhow::Result<()> {
+    onus_core::config_env::load_default_env_file()?;
+
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_timestamp_millis()
         .init();
