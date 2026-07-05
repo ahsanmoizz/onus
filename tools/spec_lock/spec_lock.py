@@ -12,7 +12,7 @@ LOCKED_DOCUMENTS: tuple[str, ...] = (
     "MANIFESTO.md",
     "SPEC.md",
     "docs/ONUS_ACCEPTANCE_TESTS.md",
-    "docs/Onus_current_state.md",
+    "docs/ONUS_CURRENT_STATE.md",
     "docs/ONUS_IMPLEMENTATION_ROADMAP.md",
     "docs/ONUS_PRODUCT_VISION.md",
     "docs/ONUS_SECURITY_REQUIREMENTS.md",
