@@ -12,10 +12,17 @@ ENV_FILE="${3:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 ARCHIVE="/tmp/onus-gateway.tar.gz"
+STAGING="/tmp/onus-gateway-package"
 
-tar -czf "${ARCHIVE}" -C "${REPO_ROOT}/onus/apps" onus-gateway
+rm -rf "${STAGING}"
+mkdir -p "${STAGING}/scripts/vps"
+cp -R "${REPO_ROOT}/onus/apps/onus-gateway/." "${STAGING}/"
+rm -rf "${STAGING}/node_modules" "${STAGING}/.env"
+cp -R "${REPO_ROOT}/onus/scripts/vps/." "${STAGING}/scripts/vps/"
+
+tar -czf "${ARCHIVE}" -C "${STAGING}" .
 scp "${ARCHIVE}" "${REMOTE}:/tmp/onus-gateway.tar.gz"
-ssh "${REMOTE}" "mkdir -p '${REMOTE_DIR}' && tar -xzf /tmp/onus-gateway.tar.gz -C '${REMOTE_DIR}' --strip-components=1 && cd '${REMOTE_DIR}' && npm ci --omit=dev"
+ssh "${REMOTE}" "mkdir -p '${REMOTE_DIR}' && tar -xzf /tmp/onus-gateway.tar.gz -C '${REMOTE_DIR}' && cd '${REMOTE_DIR}' && npm ci --omit=dev"
 
 if [ -n "${ENV_FILE}" ]; then
   scp "${ENV_FILE}" "${REMOTE}:${REMOTE_DIR}/.env"

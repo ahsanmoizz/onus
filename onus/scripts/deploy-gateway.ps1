@@ -11,6 +11,8 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $gatewayDir = Join-Path $repoRoot "onus\apps\onus-gateway"
+$vpsScriptsDir = Join-Path $repoRoot "onus\scripts\vps"
+$staging = Join-Path $env:TEMP "onus-gateway-package"
 $archive = Join-Path $env:TEMP "onus-gateway.tar.gz"
 $remote = "$User@$Server"
 
@@ -18,9 +20,25 @@ if (-not (Test-Path $gatewayDir)) {
     throw "Gateway directory not found: $gatewayDir"
 }
 
-tar -czf $archive -C (Join-Path $repoRoot "onus\apps") "onus-gateway"
+if (Test-Path $staging) {
+    Remove-Item -Recurse -Force $staging
+}
+New-Item -ItemType Directory -Force -Path $staging | Out-Null
+Copy-Item -Recurse -Force "$gatewayDir\*" $staging
+$localNodeModules = Join-Path $staging "node_modules"
+$localEnv = Join-Path $staging ".env"
+if (Test-Path $localNodeModules) {
+    Remove-Item -Recurse -Force $localNodeModules
+}
+if (Test-Path $localEnv) {
+    Remove-Item -Force $localEnv
+}
+New-Item -ItemType Directory -Force -Path (Join-Path $staging "scripts\vps") | Out-Null
+Copy-Item -Recurse -Force "$vpsScriptsDir\*" (Join-Path $staging "scripts\vps")
+
+tar -czf $archive -C $staging "."
 scp -P $Port $archive "${remote}:/tmp/onus-gateway.tar.gz"
-ssh -p $Port $remote "mkdir -p '$RemoteDir' && tar -xzf /tmp/onus-gateway.tar.gz -C '$RemoteDir' --strip-components=1 && cd '$RemoteDir' && npm ci --omit=dev"
+ssh -p $Port $remote "mkdir -p '$RemoteDir' && tar -xzf /tmp/onus-gateway.tar.gz -C '$RemoteDir' && cd '$RemoteDir' && npm ci --omit=dev"
 
 if ($EnvFile) {
     if (-not (Test-Path $EnvFile)) {
@@ -30,7 +48,7 @@ if ($EnvFile) {
     ssh -p $Port $remote "chmod 600 '$RemoteDir/.env'"
 }
 
-Write-Host "Gateway uploaded to $remote:$RemoteDir"
+Write-Host "Gateway uploaded to ${remote}:$RemoteDir"
 Write-Host "On the VPS, install the systemd unit if desired:"
 Write-Host "  sudo useradd --system --home $RemoteDir --shell /usr/sbin/nologin onus || true"
 Write-Host "  sudo chown -R onus:onus $RemoteDir"

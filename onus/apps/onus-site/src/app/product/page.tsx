@@ -6,7 +6,7 @@ const features = [
   {
     icon: Terminal,
     title: 'Prompt Intake Guardian',
-    desc: 'Analyzes ambiguous task requests before any agent acts. Produces READY, CLARIFICATION_REQUIRED, or REJECTED_AS_UNSAFE outcomes with structured safe contracts. Supports OpenAI, Anthropic, local, or deterministic-only modes.',
+    desc: 'Analyzes ambiguous task requests before any agent acts. Produces READY, CLARIFICATION_REQUIRED, or REJECTED_AS_UNSAFE outcomes with structured safe contracts. Normal users use the managed Onus gateway token; self-hosted teams can use local or offline modes.',
   },
   {
     icon: Shield,
@@ -16,7 +16,7 @@ const features = [
   {
     icon: Zap,
     title: 'Semantic Analysis',
-    desc: 'Provider-based evaluation for contextual risks, action scoring, and correction generation. Supports OpenAI (cloud), Anthropic (cloud), llama.cpp (local), and deterministic-only modes. Each evaluation produces structured verdicts with corrections.',
+    desc: 'Managed gateway evaluation for contextual risks, action scoring, and correction generation. Provider keys stay on the Onus VPS gateway; installed clients receive only Onus client tokens. Local/self-hosted adapters remain available for private deployments.',
   },
   {
     icon: Users,

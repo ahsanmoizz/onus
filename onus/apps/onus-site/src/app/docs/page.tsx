@@ -17,8 +17,8 @@ const sections = [
     category: 'Core Concepts',
     icon: Shield,
     items: [
-      { title: 'Guardian Modes', href: '/docs/guardian-modes', desc: 'Beginner, professional, strict, deterministic, local, and provider-disabled operation.', icon: Settings },
-      { title: 'Providers', href: '/docs/providers', desc: 'Provider configuration and offline deterministic mode.', icon: Cpu },
+      { title: 'Guardian Modes', href: '/docs/guardian-modes', desc: 'Beginner, professional, strict, managed gateway, local, and offline operation.', icon: Settings },
+      { title: 'Providers', href: '/docs/providers', desc: 'Managed gateway, self-hosted, local, and offline deterministic modes.', icon: Cpu },
       { title: 'Prompt Intake', href: '/docs/prompt-intake', desc: 'Classify prompts before an agent starts work.', icon: Terminal },
       { title: 'Task Contracts', href: '/docs/task-contracts', desc: 'Bounded scopes, protected resources, budgets, and required evidence.', icon: FileCheck },
     ],

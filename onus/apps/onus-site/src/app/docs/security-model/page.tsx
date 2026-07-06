@@ -35,8 +35,8 @@ export default function SecurityModelPage() {
             <p className="text-sm text-zinc-400">Onus authenticates user identity via environment and token. The user trusts Onus to enforce governance.</p>
           </div>
           <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
-            <h3 className="text-white font-medium mb-1">Onus &harr; Provider</h3>
-            <p className="text-sm text-zinc-400">Semantic evaluation requests are sent to the configured provider (cloud or local). Data may leave the machine for cloud providers.</p>
+            <h3 className="text-white font-medium mb-1">Onus &harr; Managed Gateway</h3>
+            <p className="text-sm text-zinc-400">Semantic evaluation requests are redacted, then sent to the managed Onus gateway or a local/self-hosted adapter. Raw model-provider credentials stay on the gateway, not on user machines.</p>
           </div>
           <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
             <h3 className="text-white font-medium mb-1">Onus &harr; Daemon</h3>
