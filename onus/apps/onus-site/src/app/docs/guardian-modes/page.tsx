@@ -44,10 +44,10 @@ export default function GuardianModesPage() {
 
         <h2 className="text-xl font-semibold text-white mt-10 mb-3">Cloud Mode</h2>
         <p className="text-zinc-300 leading-relaxed mb-4">
-          Cloud mode sends actions to a cloud LLM provider for semantic evaluation. This provides the most capable analysis, supporting GPT-4o (OpenAI) and Claude 3 models (Anthropic). Cloud mode is recommended when you need the highest accuracy in risk assessment and policy compliance checking.
+          Cloud mode sends redacted semantic-review requests to the managed Onus gateway. The gateway holds the upstream model-provider key on the VPS, so normal users receive only an Onus client token instead of configuring OpenAI, Anthropic, or OpenRouter directly.
         </p>
         <p className="text-zinc-300 leading-relaxed mb-4">
-          Cloud mode requires an API key set as an environment variable. For OpenAI use <code className="text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded text-sm font-mono">OPENAI_API_KEY</code>; for Anthropic use <code className="text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded text-sm font-mono">ANTHROPIC_API_KEY</code>. The provider is configured during <code className="text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded text-sm font-mono">onus setup</code> and can be changed later.
+          Cloud mode requires <code className="text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded text-sm font-mono">ONUS_SEMANTIC_ENDPOINT</code> and an Onus-issued <code className="text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded text-sm font-mono">ONUS_SEMANTIC_API_KEY</code>. Raw provider keys belong only on the managed VPS gateway or a self-hosted gateway controlled by the operator.
         </p>
         <pre className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 text-sm text-zinc-300 font-mono overflow-x-auto my-4">onus setup --guardian-mode cloud</pre>
 
@@ -63,7 +63,7 @@ export default function GuardianModesPage() {
         </p>
         <ul className="list-disc list-inside text-zinc-300 space-y-2 mb-6 ml-4">
           <li><strong className="text-white">Security needs:</strong> How critical is the codebase? Production infrastructure requires stronger evaluation.</li>
-          <li><strong className="text-white">Budget:</strong> Cloud mode incurs API costs per evaluation. Local mode is free but requires hardware.</li>
+          <li><strong className="text-white">Budget:</strong> Managed gateway costs are handled by the Onus operator. Local mode is free but requires hardware.</li>
           <li><strong className="text-white">Latency:</strong> Deterministic-only mode adds negligible latency. Cloud evaluation adds 1&ndash;3 seconds per action.</li>
           <li><strong className="text-white">Data privacy:</strong> If code cannot leave your network, use deterministic-only or local mode.</li>
           <li><strong className="text-white">Offline requirements:</strong> Air-gapped environments require deterministic-only mode.</li>
@@ -71,7 +71,7 @@ export default function GuardianModesPage() {
 
         <div className="border-t border-zinc-800 mt-12 pt-6">
           <p className="text-sm text-zinc-500">
-            See the <Link href="/docs/providers" className="text-accent hover:underline">Providers</Link> page for detailed configuration of cloud and local LLM backends.
+            See the <Link href="/docs/providers" className="text-accent hover:underline">Providers</Link> page for managed gateway, local, and self-hosted configuration.
           </p>
         </div>
       </main>

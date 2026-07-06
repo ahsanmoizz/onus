@@ -363,7 +363,7 @@ function ArchitectureSection() {
           <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-6">
             <Zap className="w-6 h-6 text-accent mb-3" />
             <h3 className="font-semibold text-white mb-2">Semantic Analysis</h3>
-            <p className="text-zinc-400 text-sm leading-relaxed">Provider-based evaluation for contextual risks:</p>
+            <p className="text-zinc-400 text-sm leading-relaxed">Managed gateway evaluation for contextual risks:</p>
             <ul className="mt-3 space-y-1.5">
               {['Prompt Intake Guardian', 'Risk classification', 'Action scoring', 'Correction generation', 'Evidence verification', 'Safe contract proposals'].map((item, i) => (
                 <li key={i} className="text-xs text-zinc-500 flex items-center gap-2">
@@ -425,7 +425,7 @@ function CtaSection() {
       <div className="max-w-3xl mx-auto text-center">
         <h2 className="text-3xl font-bold text-white mb-4">Ready to govern your agents?</h2>
         <p className="text-zinc-400 mb-8 max-w-xl mx-auto">
-          Install Onus, set up your provider (deterministic-only mode works offline without one), and start protecting your development workflow in minutes.
+          Install Onus, connect a managed gateway token, and start protecting your development workflow in minutes.
         </p>
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
           <Link href="/install" className="px-8 py-3.5 bg-accent text-black rounded-full font-semibold hover:bg-accent-hover transition-colors flex items-center gap-2 justify-center text-sm">

@@ -32,16 +32,16 @@ export default function TroubleshootingPage() {
           </div>
         </div>
 
-        <h2 className="text-xl font-semibold text-white mt-10 mb-3">Provider Issues</h2>
+        <h2 className="text-xl font-semibold text-white mt-10 mb-3">Semantic Gateway Issues</h2>
         <div className="space-y-4 mb-6">
           <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
             <h3 className="text-white font-medium mb-1">Connection Failed</h3>
-            <p className="text-sm text-zinc-400"><strong className="text-zinc-300">Causes:</strong> Wrong API key, expired key, network proxy, rate limiting.</p>
-            <p className="text-sm text-zinc-400"><strong className="text-zinc-300">Fix:</strong> Verify the API key is set in the environment. Check <code className="text-accent bg-zinc-900 px-1 rounded">onus doctor</code> for provider diagnostics. For local providers, verify the endpoint is running.</p>
+            <p className="text-sm text-zinc-400"><strong className="text-zinc-300">Causes:</strong> Wrong Onus client token, expired token, wrong gateway URL, network proxy, or rate limiting.</p>
+            <p className="text-sm text-zinc-400"><strong className="text-zinc-300">Fix:</strong> Verify <code className="text-accent bg-zinc-900 px-1 rounded">ONUS_SEMANTIC_ENDPOINT</code> and <code className="text-accent bg-zinc-900 px-1 rounded">ONUS_SEMANTIC_API_KEY</code>. Check <code className="text-accent bg-zinc-900 px-1 rounded">onus doctor</code> for gateway diagnostics. Raw model-provider keys should only exist on the VPS gateway.</p>
           </div>
           <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
             <h3 className="text-white font-medium mb-1">Rate Limiting</h3>
-            <p className="text-sm text-zinc-400">Cloud providers have rate limits. Onus retries automatically with exponential backoff. For high-volume use, consider local providers to avoid rate limits.</p>
+            <p className="text-sm text-zinc-400">The managed gateway and upstream provider have rate limits. Onus retries automatically with exponential backoff. For high-volume private use, consider a self-hosted gateway or local provider.</p>
           </div>
         </div>
 
