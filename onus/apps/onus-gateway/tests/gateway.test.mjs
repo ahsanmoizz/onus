@@ -198,7 +198,7 @@ describe('Onus managed semantic gateway', () => {
     const server = createGatewayServer(
       config({
         ONUS_PROVIDER_MODEL: 'single-model-unused-when-fallbacks-exist',
-        ONUS_PROVIDER_MODELS: 'openai/gpt-oss-20b:free,openai/gpt-oss-120b:free,openrouter/free',
+        ONUS_PROVIDER_MODELS: 'cohere/north-mini-code:free,qwen/qwen3-coder:free,openrouter/free',
         ONUS_PROVIDER_SORT_BY: 'throughput',
         ONUS_PROVIDER_SORT_PARTITION: 'none',
       }),
@@ -221,8 +221,8 @@ describe('Onus managed semantic gateway', () => {
     assert.equal(response.status, 200);
     assert.equal(upstreamParsedBody.model, undefined);
     assert.deepEqual(upstreamParsedBody.models, [
-      'openai/gpt-oss-20b:free',
-      'openai/gpt-oss-120b:free',
+      'cohere/north-mini-code:free',
+      'qwen/qwen3-coder:free',
       'openrouter/free',
     ]);
     assert.deepEqual(upstreamParsedBody.provider, {
@@ -230,6 +230,17 @@ describe('Onus managed semantic gateway', () => {
       sort: { by: 'throughput', partition: 'none' },
     });
     await close(server);
+  });
+
+  it('rejects OpenRouter fallback lists longer than three models at config load time', () => {
+    assert.throws(
+      () =>
+        config({
+          ONUS_PROVIDER_MODELS:
+            'cohere/north-mini-code:free,poolside/laguna-xs-2.1:free,qwen/qwen3-coder:free,openrouter/free',
+        }),
+      /3 models or fewer/,
+    );
   });
 
   it('rejects oversized request bodies before provider forwarding', async () => {

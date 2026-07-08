@@ -649,9 +649,16 @@ function modelList(value) {
     if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === 'string' && item.trim())) {
       throw new Error('ONUS_PROVIDER_MODELS must be a comma-separated list or JSON string array');
     }
-    return parsed.map((item) => item.trim());
+    return validateModelList(parsed.map((item) => item.trim()));
   }
-  return list(raw);
+  return validateModelList(list(raw));
+}
+
+function validateModelList(models) {
+  if (models.length > 3) {
+    throw new Error('ONUS_PROVIDER_MODELS must contain 3 models or fewer');
+  }
+  return models;
 }
 
 function text(value, fallback) {
