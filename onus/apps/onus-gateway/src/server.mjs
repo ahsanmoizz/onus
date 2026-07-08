@@ -48,6 +48,7 @@ export function loadConfig(env = process.env) {
     providerTitle: nonEmpty(env.ONUS_PROVIDER_TITLE) ?? 'Onus',
     providerSortBy: nonEmpty(env.ONUS_PROVIDER_SORT_BY),
     providerSortPartition: nonEmpty(env.ONUS_PROVIDER_SORT_PARTITION),
+    providerRequireParameters: bool(env.ONUS_PROVIDER_REQUIRE_PARAMETERS, true),
     jwtSecret: nonEmpty(env.ONUS_JWT_SECRET),
     adminToken: nonEmpty(env.ONUS_ADMIN_TOKEN),
     requireAuth: bool(env.ONUS_REQUIRE_AUTH, true),
@@ -514,6 +515,9 @@ function buildUpstreamPayload(payload, config) {
   const provider = {};
   if (config.providerModels.length > 0) {
     provider.allow_fallbacks = true;
+  }
+  if (config.providerRequireParameters) {
+    provider.require_parameters = true;
   }
   if (config.providerSortBy) {
     provider.sort = {

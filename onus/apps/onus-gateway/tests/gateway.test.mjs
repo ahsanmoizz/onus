@@ -198,7 +198,7 @@ describe('Onus managed semantic gateway', () => {
     const server = createGatewayServer(
       config({
         ONUS_PROVIDER_MODEL: 'single-model-unused-when-fallbacks-exist',
-        ONUS_PROVIDER_MODELS: 'cohere/north-mini-code:free,qwen/qwen3-coder:free,openrouter/free',
+        ONUS_PROVIDER_MODELS: 'cohere/north-mini-code:free,qwen/qwen3-coder:free,openai/gpt-oss-20b:free',
         ONUS_PROVIDER_SORT_BY: 'throughput',
         ONUS_PROVIDER_SORT_PARTITION: 'none',
       }),
@@ -223,10 +223,11 @@ describe('Onus managed semantic gateway', () => {
     assert.deepEqual(upstreamParsedBody.models, [
       'cohere/north-mini-code:free',
       'qwen/qwen3-coder:free',
-      'openrouter/free',
+      'openai/gpt-oss-20b:free',
     ]);
     assert.deepEqual(upstreamParsedBody.provider, {
       allow_fallbacks: true,
+      require_parameters: true,
       sort: { by: 'throughput', partition: 'none' },
     });
     await close(server);
