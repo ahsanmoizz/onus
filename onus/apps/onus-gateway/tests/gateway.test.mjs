@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import { after, before, describe, it } from 'node:test';
 import {
+  buildUpstreamPayload,
   createGatewayServer,
   hashToken,
   loadConfig,
@@ -269,6 +270,24 @@ describe('Onus managed semantic gateway', () => {
       require_parameters: true,
     });
     await close(server);
+  });
+
+  it('omits OpenRouter-only provider routing for non-OpenRouter endpoints', () => {
+    const payload = buildUpstreamPayload(
+      {
+        model: 'client-requested-model',
+        provider: { require_parameters: true },
+        messages: [{ role: 'user', content: 'review this' }],
+      },
+      config({
+        ONUS_PROVIDER_ENDPOINT: 'https://api.openai.com/v1/chat/completions',
+        ONUS_PROVIDER_MODEL: 'gpt-4o-mini',
+        ONUS_PROVIDER_MODELS: '',
+        ONUS_PROVIDER_REQUIRE_PARAMETERS: '1',
+      }),
+    );
+    assert.equal(payload.model, 'gpt-4o-mini');
+    assert.equal(payload.provider, undefined);
   });
 
   it('rejects OpenRouter fallback lists longer than three models at config load time', () => {

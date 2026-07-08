@@ -499,7 +499,7 @@ function validateProviderConfig(config) {
   }
 }
 
-function buildUpstreamPayload(payload, config) {
+export function buildUpstreamPayload(payload, config) {
   const upstreamPayload = {
     ...payload,
     stream: false,
@@ -512,29 +512,35 @@ function buildUpstreamPayload(payload, config) {
     delete upstreamPayload.models;
     upstreamPayload.model = config.providerModel;
   }
-  const provider = {};
-  if (config.providerModels.length > 0) {
-    provider.allow_fallbacks = true;
-  }
-  if (config.providerRequireParameters) {
-    provider.require_parameters = true;
-  }
-  if (config.providerSortBy) {
-    provider.sort = {
-      by: config.providerSortBy,
-    };
-    if (config.providerSortPartition) {
-      provider.sort.partition = config.providerSortPartition;
+  if (isOpenRouterEndpoint(config.providerEndpoint)) {
+    const provider = {};
+    if (config.providerModels.length > 0) {
+      provider.allow_fallbacks = true;
     }
-  }
-  if (Object.keys(provider).length > 0) {
-    upstreamPayload.provider = provider;
+    if (config.providerRequireParameters) {
+      provider.require_parameters = true;
+    }
+    if (config.providerSortBy) {
+      provider.sort = {
+        by: config.providerSortBy,
+      };
+      if (config.providerSortPartition) {
+        provider.sort.partition = config.providerSortPartition;
+      }
+    }
+    if (Object.keys(provider).length > 0) {
+      upstreamPayload.provider = provider;
+    }
   }
   return upstreamPayload;
 }
 
 function providerModelConfigured(config) {
   return config.providerModel || config.providerModels.length > 0;
+}
+
+function isOpenRouterEndpoint(endpoint) {
+  return typeof endpoint === 'string' && endpoint.includes('openrouter.ai');
 }
 
 async function readJson(req, limit) {
