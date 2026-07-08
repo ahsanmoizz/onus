@@ -1,29 +1,9 @@
 <#
 .SYNOPSIS
-    Onus — AI Agent Firewall Installer (Windows)
+    Onus Windows installer.
 .DESCRIPTION
-    Installs Onus, verifies checksums, configures PATH, and runs setup.
-    Supports interactive, non-interactive, upgrade, repair, and dry-run modes.
-.PARAMETER Version
-    Release version to install (default: "latest")
-.PARAMETER InstallDir
-    Binary installation directory (default: %LOCALAPPDATA%\Onus\bin)
-.PARAMETER NoPath
-    Skip PATH modification
-.PARAMETER DryRun
-    Show what would happen without making changes
-.PARAMETER Repair
-    Reinstall without removing existing configuration
-.PARAMETER Upgrade
-    Upgrade from an existing installation
-.PARAMETER NoVerify
-    Skip SHA-256 checksum verification
-.PARAMETER NoInteractive
-    Run non-interactively (no prompts)
-.EXAMPLE
-    .\install-onus.ps1
-    .\install-onus.ps1 -Version v0.1.0 -DryRun
-    .\install-onus.ps1 -Upgrade -NoInteractive
+    Installs the Onus CLI from a GitHub release archive, verifies checksums,
+    configures PATH, creates a strict local config, and runs diagnostics.
 #>
 
 param(
@@ -38,17 +18,25 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Host.UI.RawUI.WindowTitle = "Onus Installer"
 
-# ── Configuration ──
 $Repo = "ahsanmoizz/onus"
+$ReleaseBase = "https://github.com/$Repo/releases"
 $ConfigDir = "$env:APPDATA\Onus"
 $DataDir = "$env:LOCALAPPDATA\Onus\data"
 $RulesDir = "$ConfigDir\rules"
-$BinaryPath = "$InstallDir\onus.exe"
-$ArchiveName = "onus-$Version-windows-x86_64.zip"
+$BinaryPath = Join-Path $InstallDir "onus.exe"
 $ChecksumFile = "SHA256SUMS"
-$ReleaseBase = "https://github.com/$Repo/releases"
+
+if (-not [Environment]::Is64BitOperatingSystem) {
+    Write-Host "32-bit Windows is not supported. Onus requires 64-bit Windows." -ForegroundColor Red
+    exit 1
+}
+
+$ArchiveName = if ($Version -eq "latest") {
+    "onus-latest-windows-x86_64.zip"
+} else {
+    "onus-$Version-windows-x86_64.zip"
+}
 
 if ($Version -eq "latest") {
     $DownloadUrl = "$ReleaseBase/latest/download/$ArchiveName"
@@ -58,43 +46,27 @@ if ($Version -eq "latest") {
     $ChecksumUrl = "$ReleaseBase/download/$Version/$ChecksumFile"
 }
 
-# ── Helper functions ──
-function Write-Banner {
-    Write-Host "╔══════════════════════════════════════════════╗" -ForegroundColor Cyan
-    Write-Host "║        Onus — AI Agent Firewall             ║" -ForegroundColor Cyan
-    Write-Host "║        Windows Installer                     ║" -ForegroundColor Cyan
-    Write-Host "╚══════════════════════════════════════════════╝" -ForegroundColor Cyan
-    Write-Host ""
-}
-
 function Write-Step {
     param([string]$Message)
-    Write-Host "  >> $Message" -ForegroundColor Yellow
+    Write-Host ">> $Message" -ForegroundColor Yellow
 }
 
 function Write-OK {
     param([string]$Message)
-    Write-Host "  [OK] $Message" -ForegroundColor Green
+    Write-Host "[OK] $Message" -ForegroundColor Green
 }
 
 function Write-Warn {
     param([string]$Message)
-    Write-Host "  [WARN] $Message" -ForegroundColor DarkYellow
+    Write-Host "[WARN] $Message" -ForegroundColor DarkYellow
 }
 
-function Write-Err {
+function Write-Fail {
     param([string]$Message)
-    Write-Host "  [FAIL] $Message" -ForegroundColor Red
+    Write-Host "[FAIL] $Message" -ForegroundColor Red
 }
 
-function Test-Administrator {
-    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
-    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-}
-
-# ── Dry-run guard ──
-function Invoke-Step {
+function Invoke-InstallStep {
     param([string]$Message, [scriptblock]$ScriptBlock)
     Write-Step $Message
     if (-not $DryRun) {
@@ -102,37 +74,24 @@ function Invoke-Step {
     }
 }
 
-# ── Main ──
-Write-Banner
-
-# ── 1. System detection ──
-Write-Step "Detecting system architecture..."
-$Arch = "x86_64"
-if (-not [Environment]::Is64BitOperatingSystem) {
-    Write-Err "32-bit Windows is not supported. Onus requires a 64-bit operating system."
-    exit 1
-}
-Write-OK "Windows / $Arch detected"
-
-if (-not (Test-Administrator)) {
-    Write-OK "Running as standard user (administrator rights not required)"
-} else {
-    Write-Warn "Running as administrator — Onus does not require admin rights"
-}
-
-# ── 2. Display plan ──
 Write-Host ""
-Write-Host "  Platform:   windows/$Arch"
-Write-Host "  Version:    $Version"
-Write-Host "  Binary:     $BinaryPath"
-Write-Host "  Config:     $ConfigDir"
-Write-Host "  Data:       $DataDir"
-if ($DryRun) { Write-Host "  Mode:       DRY RUN (no changes)" }
-if ($Repair) { Write-Host "  Mode:       REPAIR" }
-if ($Upgrade) { Write-Host "  Mode:       UPGRADE" }
+Write-Host "Onus Windows Installer" -ForegroundColor Cyan
+Write-Host "  Version:  $Version"
+Write-Host "  Archive:  $ArchiveName"
+Write-Host "  Install:  $InstallDir"
+Write-Host "  Config:   $ConfigDir"
 Write-Host ""
 
-# ── 3. Confirm ──
+if ($DryRun) {
+    Write-Warn "Dry run mode. No changes will be written."
+}
+if ($Repair) {
+    Write-Warn "Repair mode enabled."
+}
+if ($Upgrade) {
+    Write-Warn "Upgrade mode enabled."
+}
+
 if (-not $NoInteractive -and -not $DryRun) {
     $confirm = Read-Host "Proceed with installation? (Y/n)"
     if ($confirm -eq "n" -or $confirm -eq "N") {
@@ -141,212 +100,201 @@ if (-not $NoInteractive -and -not $DryRun) {
     }
 }
 
-# ── 4. Locate or download archive ──
 $ArchivePath = $null
 if (Test-Path $ArchiveName) {
     $ArchivePath = (Get-Item $ArchiveName).FullName
     Write-OK "Found local archive: $ArchivePath"
-} elseif (Test-Path ".\$ArchiveName") {
-    $ArchivePath = (Get-Item ".\$ArchiveName").FullName
-    Write-OK "Found local archive: $ArchivePath"
 } else {
-    Invoke-Step "Downloading $ArchiveName from GitHub releases..." {
-        Write-Host "    URL: $DownloadUrl"
+    Invoke-InstallStep "Downloading release archive" {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        $tmp = "$env:TEMP\$ArchiveName"
-        Invoke-WebRequest -Uri $DownloadUrl -OutFile $tmp -ErrorAction Stop
-        $ArchivePath = $tmp
-        Write-OK "Downloaded to $ArchivePath"
+        $ArchivePath = Join-Path $env:TEMP $ArchiveName
+        Write-Host "  $DownloadUrl"
+        Invoke-WebRequest -Uri $DownloadUrl -OutFile $ArchivePath -ErrorAction Stop
+        Write-OK "Downloaded archive to $ArchivePath"
     }
 }
 
 if (-not $DryRun -and (-not $ArchivePath -or -not (Test-Path $ArchivePath))) {
-    Write-Err "Could not locate or download $ArchiveName"
+    Write-Fail "Could not locate or download $ArchiveName"
     exit 1
 }
 
-# ── 5. Verify SHA-256 checksum ──
 if (-not $NoVerify -and -not $DryRun) {
-    Write-Step "Verifying SHA-256 checksum..."
-    $checksumPassed = $false
-    $checksumsLocal = if (Test-Path $ChecksumFile) { Get-Content $ChecksumFile } else { $null }
-    if ($checksumsLocal) {
-        Write-Host "    Using local checksum file"
-        $expectedHash = ($checksumsLocal | Where-Object { $_ -match [regex]::Escape($ArchiveName) } | ForEach-Object { ($_ -split '\s+')[0] })
+    Write-Step "Verifying SHA-256 checksum"
+    $expectedHash = $null
+    if (Test-Path $ChecksumFile) {
+        $checksumContent = Get-Content $ChecksumFile
     } else {
-        Write-Host "    Downloading checksum file from GitHub..."
-        try {
-            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-            $checksumsContent = (Invoke-WebRequest -Uri $ChecksumUrl -ErrorAction Stop).Content
-            $expectedHash = ($checksumsContent -split "`n" | Where-Object { $_ -match [regex]::Escape($ArchiveName) } | ForEach-Object { ($_ -split '\s+')[0] })
-        } catch {
-            Write-Warn "Could not download checksum file: $_"
-        }
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        $checksumContent = (Invoke-WebRequest -Uri $ChecksumUrl -ErrorAction Stop).Content -split "`n"
+    }
+    $expectedHash = $checksumContent |
+        Where-Object { $_ -match [regex]::Escape($ArchiveName) } |
+        ForEach-Object { ($_ -split '\s+')[0] } |
+        Select-Object -First 1
+
+    if (-not $expectedHash) {
+        Write-Fail "No checksum found for $ArchiveName"
+        exit 1
     }
 
-    if ($expectedHash) {
-        $actualHash = (Get-FileHash -Path $ArchivePath -Algorithm SHA256).Hash.ToLower()
-        $expectedHash = $expectedHash.ToLower().Trim()
-        if ($actualHash -eq $expectedHash) {
-            Write-OK "Checksum verified ($($actualHash.Substring(0,16))...)"
-            $checksumPassed = $true
-        } else {
-            Write-Err "Checksum MISMATCH"
-            Write-Host "    Expected: $expectedHash"
-            Write-Host "    Actual:   $actualHash"
-            Write-Host "    The archive may be corrupted or tampered with."
-            if (-not $NoInteractive) {
-                $continue = Read-Host "Continue anyway? (y/N)"
-                if ($continue -ne "y" -and $continue -ne "Y") { exit 1 }
-            } else {
-                exit 1
-            }
-        }
-    } else {
-        Write-Warn "No checksum found for $ArchiveName in checksum file — skipping verification"
+    $actualHash = (Get-FileHash -Path $ArchivePath -Algorithm SHA256).Hash.ToLower()
+    if ($actualHash -ne $expectedHash.ToLower().Trim()) {
+        Write-Fail "Checksum mismatch"
+        Write-Host "  Expected: $expectedHash"
+        Write-Host "  Actual:   $actualHash"
+        exit 1
     }
+    Write-OK "Checksum verified"
 }
 
-# ── 6. Create directories ──
-Invoke-Step "Creating installation directories..." {
+Invoke-InstallStep "Creating directories" {
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
     New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
     New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
     New-Item -ItemType Directory -Force -Path $RulesDir | Out-Null
-    Write-OK "Directories created"
+    Write-OK "Directories ready"
 }
 
-# ── 7. Extract archive ──
-Invoke-Step "Extracting archive..." {
-    if ($ArchivePath.EndsWith('.zip')) {
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
-        [System.IO.Compression.ZipFile]::ExtractToDirectory($ArchivePath, $InstallDir, $true)
-    } else {
-        Write-Err "Unsupported archive format: $ArchivePath"
+Invoke-InstallStep "Extracting archive" {
+    $ExtractDir = Join-Path $env:TEMP "onus-install-extract"
+    if (Test-Path $ExtractDir) {
+        Remove-Item -Recurse -Force $ExtractDir
+    }
+    New-Item -ItemType Directory -Force -Path $ExtractDir | Out-Null
+    Expand-Archive -Path $ArchivePath -DestinationPath $ExtractDir -Force
+    $extractedExe = Get-ChildItem -Path $ExtractDir -Recurse -Filter "onus.exe" | Select-Object -First 1
+    if (-not $extractedExe) {
+        Write-Fail "onus.exe not found in archive"
         exit 1
     }
+    Copy-Item $extractedExe.FullName $BinaryPath -Force
 
-    # If extracted onus.exe is in a subdirectory, move it
-    $extractedExe = Get-ChildItem -Path $InstallDir -Recurse -Filter "onus.exe" | Select-Object -First 1
-    if ($extractedExe -and $extractedExe.DirectoryName -ne $InstallDir) {
-        Move-Item -Force $extractedExe.FullName "$InstallDir\onus.exe"
+    $uninstaller = Get-ChildItem -Path $ExtractDir -Recurse -Filter "uninstall-onus.ps1" | Select-Object -First 1
+    if ($uninstaller) {
+        Copy-Item $uninstaller.FullName (Join-Path $InstallDir "uninstall-onus.ps1") -Force
     }
-
-    if (-not (Test-Path $BinaryPath)) {
-        Write-Err "onus.exe not found after extraction"
-        exit 1
-    }
-    Write-OK "Extracted onus.exe to $BinaryPath"
+    Remove-Item -Recurse -Force $ExtractDir -ErrorAction SilentlyContinue
+    Write-OK "Installed onus.exe"
 }
 
-# ── 8. Add to PATH ──
 if (-not $NoPath -and -not $DryRun) {
-    Write-Step "Configuring PATH..."
+    Write-Step "Configuring user PATH"
     $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
-    if ($userPath -split ";" -contains $InstallDir) {
+    $pathEntries = @()
+    if ($userPath) {
+        $pathEntries = $userPath -split ";" | Where-Object { $_ }
+    }
+    if ($pathEntries -contains $InstallDir) {
         Write-OK "$InstallDir already in PATH"
     } else {
-        $newPath = if ($userPath) { "$userPath;$InstallDir" } else { $InstallDir }
+        $newPath = (($pathEntries + $InstallDir) -join ";")
         [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
-        # Also update current session
         $env:PATH = "$env:PATH;$InstallDir"
-        Write-OK "Added $InstallDir to user PATH"
-        Write-Host "    (may need to restart terminal for change to take effect)"
+        Write-OK "Added $InstallDir to PATH"
     }
 }
 
-# ── 9. Create placeholder config ──
-Invoke-Step "Creating configuration..." {
-    $configFile = "$ConfigDir\onus.env"
-    if (-not (Test-Path $configFile)) {
+Invoke-InstallStep "Creating local configuration" {
+    $configFile = Join-Path $ConfigDir "onus.env"
+    if (Test-Path $configFile) {
+        Write-OK "Config already exists and was preserved"
+    } else {
         $uiToken = [guid]::NewGuid().ToString("N") + [guid]::NewGuid().ToString("N")
-        $semanticEndpoint = if ($env:ONUS_MANAGED_SEMANTIC_ENDPOINT) { $env:ONUS_MANAGED_SEMANTIC_ENDPOINT } else { "https://YOUR-ONUS-GATEWAY/v1/chat/completions" }
-        $semanticToken = if ($env:ONUS_MANAGED_CLIENT_TOKEN) { $env:ONUS_MANAGED_CLIENT_TOKEN } else { "PASTE_ONUS_CLIENT_TOKEN_AFTER_ACTIVATION" }
-@"
-# Onus Configuration
-# Created by installer on $(Get-Date -Format 'yyyy-MM-dd')
-# This file is loaded automatically by the Onus CLI.
-
-ONUS_STRICT=1
-ONUS_MISSING_CONTRACT=block_mutating
-ONUS_LOCAL_UI_TOKEN=$uiToken
-
-# Managed semantic review.
-# This token is an Onus gateway client token, not a raw model-provider key.
-ONUS_SEMANTIC_PROVIDER=cloud
-ONUS_SEMANTIC_ENDPOINT=$semanticEndpoint
-ONUS_SEMANTIC_MODEL=onus-managed
-ONUS_SEMANTIC_API_KEY=$semanticToken
-ONUS_SEMANTIC_FALLBACK=fail_closed
-ONUS_SEMANTIC_FAIL_CLOSED_CRITICAL=1
-ONUS_SEMANTIC_PRIVACY_MODE=strict
-ONUS_SEMANTIC_REDACT=1
-ONUS_SEMANTIC_TIMEOUT_MS=30000
-
-"@ | Out-File -FilePath $configFile -Encoding utf8
-        Write-OK "Created production-safe config at $configFile"
-    } else {
-        Write-OK "Config already exists at $configFile (preserved)"
+        $semanticEndpoint = if ($env:ONUS_MANAGED_SEMANTIC_ENDPOINT) {
+            $env:ONUS_MANAGED_SEMANTIC_ENDPOINT
+        } else {
+            "https://YOUR-ONUS-GATEWAY/v1/chat/completions"
+        }
+        $semanticToken = if ($env:ONUS_MANAGED_CLIENT_TOKEN) {
+            $env:ONUS_MANAGED_CLIENT_TOKEN
+        } else {
+            "PASTE_ONUS_CLIENT_TOKEN_AFTER_ACTIVATION"
+        }
+        $configLines = @(
+            "# Onus Configuration",
+            "# Created by installer on $(Get-Date -Format 'yyyy-MM-dd')",
+            "ONUS_STRICT=1",
+            "ONUS_MISSING_CONTRACT=block_mutating",
+            "ONUS_LOCAL_UI_TOKEN=$uiToken",
+            "ONUS_SEMANTIC_PROVIDER=cloud",
+            "ONUS_SEMANTIC_ENDPOINT=$semanticEndpoint",
+            "ONUS_SEMANTIC_MODEL=onus-managed",
+            "ONUS_SEMANTIC_API_KEY=$semanticToken",
+            "ONUS_SEMANTIC_FALLBACK=fail_closed",
+            "ONUS_SEMANTIC_FAIL_CLOSED_CRITICAL=1",
+            "ONUS_SEMANTIC_PRIVACY_MODE=strict",
+            "ONUS_SEMANTIC_REDACT=1",
+            "ONUS_SEMANTIC_TIMEOUT_MS=120000"
+        )
+        $configLines | Set-Content -Path $configFile -Encoding utf8
+        Write-OK "Created config at $configFile"
     }
 }
 
-# ── 10. Verify binary ──
-Invoke-Step "Verifying Onus binary..." {
-    $result = & $BinaryPath --version 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        Write-OK "onus --version: $result"
-    } else {
-        Write-Err "Binary verification failed: $result"
+Invoke-InstallStep "Verifying binary" {
+    $versionOutput = & $BinaryPath --version 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Fail "Binary verification failed: $versionOutput"
         exit 1
     }
+    Write-OK "onus --version: $versionOutput"
 }
 
-# ── 11. Run doctor ──
-Invoke-Step "Running Onus diagnostics..." {
-    Write-Host ""
-    $doctorResult = & $BinaryPath doctor 2>&1
-    Write-Host "$doctorResult"
-    Write-Host ""
-    if ($LASTEXITCODE -eq 0) {
-        Write-OK "Doctor check passed"
+Invoke-InstallStep "Running diagnostics" {
+    $doctorOutputPath = Join-Path $env:TEMP "onus-doctor-stdout.txt"
+    $doctorErrorPath = Join-Path $env:TEMP "onus-doctor-stderr.txt"
+    foreach ($path in @($doctorOutputPath, $doctorErrorPath)) {
+        if (Test-Path $path) {
+            Remove-Item -Force $path
+        }
+    }
+    $doctorProcess = Start-Process `
+        -FilePath $BinaryPath `
+        -ArgumentList @("doctor") `
+        -NoNewWindow `
+        -Wait `
+        -PassThru `
+        -RedirectStandardOutput $doctorOutputPath `
+        -RedirectStandardError $doctorErrorPath
+    $doctorExitCode = $doctorProcess.ExitCode
+    $doctorOutput = Get-Content $doctorOutputPath -Raw -Encoding utf8 -ErrorAction SilentlyContinue
+    if (Test-Path $doctorErrorPath) {
+        $doctorError = Get-Content $doctorErrorPath -Raw -Encoding utf8 -ErrorAction SilentlyContinue
+        if ($doctorError) {
+            $doctorOutput = @($doctorOutput; $doctorError.Trim())
+        }
+    }
+    foreach ($path in @($doctorOutputPath, $doctorErrorPath)) {
+        Remove-Item -Force $path -ErrorAction SilentlyContinue
+    }
+    Write-Host $doctorOutput
+    if ($doctorExitCode -eq 0) {
+        Write-OK "Doctor passed"
     } else {
-        Write-Warn "Doctor reported issues (non-zero exit)"
+        Write-Warn "Doctor reported issues. Review output above."
     }
 }
 
-# ── 12. Write uninstall registry key ──
 if (-not $DryRun) {
     try {
-        $uninstallKey = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Onus"
-        if (-not (Test-Path $uninstallKey)) {
-            # Try HKCU since we don't require admin
-            $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Onus"
-            $null = New-Item -Path $uninstallKey -Force -ErrorAction SilentlyContinue
-        }
-        if (Test-Path $uninstallKey) {
-            Set-ItemProperty -Path $uninstallKey -Name "DisplayName" -Value "Onus AI Agent Firewall" -ErrorAction SilentlyContinue
-            Set-ItemProperty -Path $uninstallKey -Name "DisplayVersion" -Value "$Version" -ErrorAction SilentlyContinue
-            Set-ItemProperty -Path $uninstallKey -Name "InstallLocation" -Value "$InstallDir" -ErrorAction SilentlyContinue
-            Set-ItemProperty -Path $uninstallKey -Name "UninstallString" -Value "$InstallDir\uninstall-onus.ps1" -ErrorAction SilentlyContinue
-        }
+        $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Onus"
+        New-Item -Path $uninstallKey -Force -ErrorAction SilentlyContinue | Out-Null
+        Set-ItemProperty -Path $uninstallKey -Name "DisplayName" -Value "Onus AI Agent Firewall" -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path $uninstallKey -Name "DisplayVersion" -Value "$Version" -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path $uninstallKey -Name "InstallLocation" -Value "$InstallDir" -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path $uninstallKey -Name "UninstallString" -Value "$(Join-Path $InstallDir 'uninstall-onus.ps1')" -ErrorAction SilentlyContinue
     } catch {
-        Write-Warn "Could not write uninstall registry key (non-admin install)"
+        Write-Warn "Could not write uninstall registry key"
     }
 }
 
-# ── 13. Print next steps ──
-Write-Host "╔══════════════════════════════════════════════╗" -ForegroundColor Green
-Write-Host "║        Installation Complete!                ║" -ForegroundColor Green
-Write-Host "╚══════════════════════════════════════════════╝" -ForegroundColor Green
 Write-Host ""
-Write-Host "  Next steps:"
-Write-Host "   1. Run:         onus setup"
-Write-Host "   2. Doctor:      onus doctor"
-Write-Host "   3. Start:       onus daemon start"
-Write-Host "   4. Console:     onus dashboard"
-Write-Host ""
-Write-Host "  Documentation: https://ahsanmoizz.github.io/onus/docs"
-Write-Host "  Uninstall:     $InstallDir\uninstall-onus.ps1"
+Write-Host "Installation complete." -ForegroundColor Green
+Write-Host "Next:"
+Write-Host "  onus doctor"
+Write-Host "  onus start"
+Write-Host "  onus console --port 3001"
 Write-Host ""
 
 exit 0

@@ -2,11 +2,11 @@ import Link from 'next/link';
 import { ArrowRight, CheckCircle, Copy, Download, Shield, Terminal } from 'lucide-react';
 import { BrandLogo } from '@/components/brand-logo';
 
-const windowsInstall = `Invoke-WebRequest -Uri "https://raw.githubusercontent.com/ahsanmoizz/onus/main/onus/install/install-onus.ps1" -OutFile "install-onus.ps1"
+const windowsInstall = `Invoke-WebRequest -Uri "https://github.com/ahsanmoizz/onus/releases/latest/download/install-onus.ps1" -OutFile "install-onus.ps1"
 powershell -ExecutionPolicy Bypass -File install-onus.ps1
 onus doctor`;
 
-const linuxInstall = `curl -fsSL https://raw.githubusercontent.com/ahsanmoizz/onus/main/onus/install/install-onus.sh -o install-onus.sh
+const linuxInstall = `curl -fsSL https://github.com/ahsanmoizz/onus/releases/latest/download/install-onus.sh -o install-onus.sh
 bash install-onus.sh
 onus doctor`;
 

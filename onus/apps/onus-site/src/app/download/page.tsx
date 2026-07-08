@@ -5,14 +5,14 @@ import { BrandLogo } from '@/components/brand-logo';
 const downloads = [
   {
     title: 'Windows x86_64',
-    file: 'onus-windows-x86_64.zip',
-    command: 'Invoke-WebRequest -Uri "https://raw.githubusercontent.com/ahsanmoizz/onus/main/onus/install/install-onus.ps1" -OutFile "install-onus.ps1"',
+    file: 'onus-latest-windows-x86_64.zip',
+    command: 'Invoke-WebRequest -Uri "https://github.com/ahsanmoizz/onus/releases/latest/download/install-onus.ps1" -OutFile "install-onus.ps1"\npowershell -ExecutionPolicy Bypass -File .\\install-onus.ps1',
     note: 'Use PowerShell. L3 workspace containment is not available on native Windows.',
   },
   {
     title: 'Linux x86_64',
-    file: 'onus-linux-x86_64.tar.gz',
-    command: 'curl -fsSL https://raw.githubusercontent.com/ahsanmoizz/onus/main/onus/install/install-onus.sh -o install-onus.sh',
+    file: 'onus-latest-linux-x86_64.tar.gz',
+    command: 'curl -fsSL https://github.com/ahsanmoizz/onus/releases/latest/download/install-onus.sh -o install-onus.sh\nbash install-onus.sh',
     note: 'Use Linux for L3 workspace containment with bubblewrap.',
   },
   {
@@ -71,11 +71,11 @@ export default function DownloadPage() {
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <p className="mb-2 text-sm text-zinc-400">Windows checksum:</p>
-              <pre className="overflow-x-auto rounded-md border border-zinc-800 bg-black p-3 text-xs text-zinc-300"><code>Get-FileHash .\onus-windows-x86_64.zip -Algorithm SHA256</code></pre>
+              <pre className="overflow-x-auto rounded-md border border-zinc-800 bg-black p-3 text-xs text-zinc-300"><code>Get-FileHash .\onus-latest-windows-x86_64.zip -Algorithm SHA256</code></pre>
             </div>
             <div>
               <p className="mb-2 text-sm text-zinc-400">Linux checksum:</p>
-              <pre className="overflow-x-auto rounded-md border border-zinc-800 bg-black p-3 text-xs text-zinc-300"><code>sha256sum onus-linux-x86_64.tar.gz</code></pre>
+              <pre className="overflow-x-auto rounded-md border border-zinc-800 bg-black p-3 text-xs text-zinc-300"><code>sha256sum onus-latest-linux-x86_64.tar.gz</code></pre>
             </div>
           </div>
           <p className="mt-4 text-sm leading-6 text-zinc-500">

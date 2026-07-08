@@ -46,7 +46,7 @@ $env:ONUS_SEMANTIC_API_KEY="ONUS_CLIENT_TOKEN"`;
           Run the install script from your terminal. On Linux x86_64:
         </p>
         <pre className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 text-sm text-zinc-300 font-mono overflow-x-auto my-4"># Download the installer script
-curl -fsSL https://github.com/ahsanmoizz/onus/releases/latest/download/install.sh -o install-onus.sh
+curl -fsSL https://github.com/ahsanmoizz/onus/releases/latest/download/install-onus.sh -o install-onus.sh
 
 # Review the script (always verify before running)
 less install-onus.sh
@@ -57,7 +57,7 @@ bash install-onus.sh</pre>
           On Windows (PowerShell):
         </p>
         <pre className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 text-sm text-zinc-300 font-mono overflow-x-auto my-4"># Download the installer script
-Invoke-WebRequest -Uri &quot;https://github.com/ahsanmoizz/onus/releases/latest/download/install.ps1&quot; -OutFile &quot;install-onus.ps1&quot;
+Invoke-WebRequest -Uri &quot;https://github.com/ahsanmoizz/onus/releases/latest/download/install-onus.ps1&quot; -OutFile &quot;install-onus.ps1&quot;
 
 # Review the script (always verify before running)
 notepad install-onus.ps1
@@ -65,7 +65,7 @@ notepad install-onus.ps1
 # Run the installer
 powershell -ExecutionPolicy Bypass -File install-onus.ps1</pre>
         <p className="text-zinc-300 leading-relaxed mb-4">
-          The script detects your platform and architecture, downloads the correct binary, verifies the checksum, and installs it to <code className="text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded text-sm font-mono">~/.local/bin</code> (Linux) or <code className="text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded text-sm font-mono">%LOCALAPPDATA%\onus</code> (Windows).
+          The script detects your platform and architecture, downloads the correct archive, verifies the checksum, and installs it to <code className="text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded text-sm font-mono">~/.local/bin</code> (Linux) or <code className="text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded text-sm font-mono">%LOCALAPPDATA%\Onus\bin</code> (Windows).
         </p>
         <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4 mb-6">
           <p className="text-sm text-zinc-400">
@@ -87,7 +87,7 @@ cargo build --release</pre>
           The compiled binary will be at <code className="text-zinc-200 bg-zinc-800 px-1.5 py-0.5 rounded text-sm font-mono">target/release/onus</code>. Copy it to a directory in your PATH:
         </p>
         <pre className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 text-sm text-zinc-300 font-mono overflow-x-auto my-4">cp target/release/onus ~/.local/bin/onus    # Linux
-# or on Windows copy to %LOCALAPPDATA%\onus\</pre>
+# or on Windows copy onus.exe to %LOCALAPPDATA%\Onus\bin\onus.exe</pre>
 
         <h2 className="text-xl font-semibold text-white mt-10 mb-3">Verify the Installation</h2>
         <p className="text-zinc-300 leading-relaxed mb-4">
