@@ -233,6 +233,44 @@ describe('Onus managed semantic gateway', () => {
     await close(server);
   });
 
+  it('uses a single server-side coding model with structured provider requirements', async () => {
+    const clientToken = token();
+    const store = {
+      validateToken: async () => {},
+      countUsageToday: async () => 0,
+      recordUsage: async () => {},
+      ready: async () => true,
+    };
+    const server = createGatewayServer(
+      config({
+        ONUS_PROVIDER_MODEL: 'qwen/qwen3-coder:free',
+        ONUS_PROVIDER_MODELS: '',
+        ONUS_PROVIDER_REQUIRE_PARAMETERS: '1',
+      }),
+      { store },
+    );
+    const base = await listen(server);
+    const response = await fetch(`${base}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${clientToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'client-requested-model',
+        models: ['client/fallback-should-not-be-used'],
+        messages: [{ role: 'user', content: 'review this' }],
+      }),
+    });
+    assert.equal(response.status, 200);
+    assert.equal(upstreamParsedBody.model, 'qwen/qwen3-coder:free');
+    assert.equal(upstreamParsedBody.models, undefined);
+    assert.deepEqual(upstreamParsedBody.provider, {
+      require_parameters: true,
+    });
+    await close(server);
+  });
+
   it('rejects OpenRouter fallback lists longer than three models at config load time', () => {
     assert.throws(
       () =>
