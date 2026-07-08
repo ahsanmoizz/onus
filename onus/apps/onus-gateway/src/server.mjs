@@ -41,10 +41,13 @@ export function loadConfig(env = process.env) {
     port: integer(env.ONUS_GATEWAY_PORT, 8080),
     providerEndpoint: nonEmpty(env.ONUS_PROVIDER_ENDPOINT),
     providerModel: nonEmpty(env.ONUS_PROVIDER_MODEL),
+    providerModels: modelList(env.ONUS_PROVIDER_MODELS),
     providerApiKey: nonEmpty(env.ONUS_PROVIDER_API_KEY),
     providerTimeoutMs: integer(env.ONUS_PROVIDER_TIMEOUT_MS, 30_000),
     providerReferer: nonEmpty(env.ONUS_PROVIDER_REFERER),
     providerTitle: nonEmpty(env.ONUS_PROVIDER_TITLE) ?? 'Onus',
+    providerSortBy: nonEmpty(env.ONUS_PROVIDER_SORT_BY),
+    providerSortPartition: nonEmpty(env.ONUS_PROVIDER_SORT_PARTITION),
     jwtSecret: nonEmpty(env.ONUS_JWT_SECRET),
     adminToken: nonEmpty(env.ONUS_ADMIN_TOKEN),
     requireAuth: bool(env.ONUS_REQUIRE_AUTH, true),
@@ -296,7 +299,7 @@ async function handleReady(res, config, store, requestId) {
   const missing = [];
   for (const [name, value] of [
     ['ONUS_PROVIDER_ENDPOINT', config.providerEndpoint],
-    ['ONUS_PROVIDER_MODEL', config.providerModel],
+    ['ONUS_PROVIDER_MODEL or ONUS_PROVIDER_MODELS', providerModelConfigured(config)],
     ['ONUS_PROVIDER_API_KEY', config.providerApiKey],
     ['ONUS_JWT_SECRET', config.jwtSecret],
   ]) {
@@ -384,11 +387,7 @@ async function handleChat(req, res, config, store, fetchImpl, requestId) {
     }
   }
 
-  const upstreamPayload = {
-    ...payload,
-    model: config.providerModel,
-    stream: false,
-  };
+  const upstreamPayload = buildUpstreamPayload(payload, config);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.providerTimeoutMs);
   let upstreamStatus = 502;
@@ -494,9 +493,44 @@ function validateStartupConfig(config) {
 }
 
 function validateProviderConfig(config) {
-  if (!config.providerEndpoint || !config.providerModel || !config.providerApiKey) {
+  if (!config.providerEndpoint || !providerModelConfigured(config) || !config.providerApiKey) {
     throw new HttpError(503, 'provider_not_configured');
   }
+}
+
+function buildUpstreamPayload(payload, config) {
+  const upstreamPayload = {
+    ...payload,
+    stream: false,
+  };
+  delete upstreamPayload.provider;
+  if (config.providerModels.length > 0) {
+    delete upstreamPayload.model;
+    upstreamPayload.models = config.providerModels;
+  } else {
+    delete upstreamPayload.models;
+    upstreamPayload.model = config.providerModel;
+  }
+  const provider = {};
+  if (config.providerModels.length > 0) {
+    provider.allow_fallbacks = true;
+  }
+  if (config.providerSortBy) {
+    provider.sort = {
+      by: config.providerSortBy,
+    };
+    if (config.providerSortPartition) {
+      provider.sort.partition = config.providerSortPartition;
+    }
+  }
+  if (Object.keys(provider).length > 0) {
+    upstreamPayload.provider = provider;
+  }
+  return upstreamPayload;
+}
+
+function providerModelConfigured(config) {
+  return config.providerModel || config.providerModels.length > 0;
 }
 
 async function readJson(req, limit) {
@@ -603,6 +637,21 @@ function list(value) {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function modelList(value) {
+  const raw = nonEmpty(value);
+  if (!raw) {
+    return [];
+  }
+  if (raw.startsWith('[')) {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === 'string' && item.trim())) {
+      throw new Error('ONUS_PROVIDER_MODELS must be a comma-separated list or JSON string array');
+    }
+    return parsed.map((item) => item.trim());
+  }
+  return list(raw);
 }
 
 function text(value, fallback) {

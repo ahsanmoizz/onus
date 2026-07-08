@@ -29,6 +29,7 @@ describe('Onus managed semantic gateway', () => {
   let upstreamAuth;
   let upstreamModel;
   let upstreamBody;
+  let upstreamParsedBody;
 
   before(async () => {
     provider = http.createServer((req, res) => {
@@ -37,7 +38,8 @@ describe('Onus managed semantic gateway', () => {
       req.on('end', () => {
         upstreamAuth = req.headers.authorization;
         upstreamBody = Buffer.concat(chunks).toString('utf8');
-        upstreamModel = JSON.parse(upstreamBody).model;
+        upstreamParsedBody = JSON.parse(upstreamBody);
+        upstreamModel = upstreamParsedBody.model;
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(
           JSON.stringify({
@@ -182,6 +184,51 @@ describe('Onus managed semantic gateway', () => {
     assert.equal(upstreamModel, 'server-forced-model');
     assert.equal(upstreamBody.includes(clientToken), false);
     assert.equal(body.choices[0].message.content.includes('schema_version'), true);
+    await close(server);
+  });
+
+  it('uses server-side OpenRouter model fallbacks and routing without trusting client model fields', async () => {
+    const clientToken = token();
+    const store = {
+      validateToken: async () => {},
+      countUsageToday: async () => 0,
+      recordUsage: async () => {},
+      ready: async () => true,
+    };
+    const server = createGatewayServer(
+      config({
+        ONUS_PROVIDER_MODEL: 'single-model-unused-when-fallbacks-exist',
+        ONUS_PROVIDER_MODELS: 'openai/gpt-oss-20b:free,openai/gpt-oss-120b:free,openrouter/free',
+        ONUS_PROVIDER_SORT_BY: 'throughput',
+        ONUS_PROVIDER_SORT_PARTITION: 'none',
+      }),
+      { store },
+    );
+    const base = await listen(server);
+    const response = await fetch(`${base}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${clientToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'client-requested-model',
+        models: ['client/fallback-should-not-be-used'],
+        provider: { only: ['client-provider-should-not-be-used'] },
+        messages: [{ role: 'user', content: 'review this' }],
+      }),
+    });
+    assert.equal(response.status, 200);
+    assert.equal(upstreamParsedBody.model, undefined);
+    assert.deepEqual(upstreamParsedBody.models, [
+      'openai/gpt-oss-20b:free',
+      'openai/gpt-oss-120b:free',
+      'openrouter/free',
+    ]);
+    assert.deepEqual(upstreamParsedBody.provider, {
+      allow_fallbacks: true,
+      sort: { by: 'throughput', partition: 'none' },
+    });
     await close(server);
   });
 
