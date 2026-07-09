@@ -156,7 +156,7 @@ pub fn run(args: DoctorArgs) -> anyhow::Result<()> {
 
             // Check MCP config
             match crate::cli::antigravity::check_mcp_config(&path) {
-                crate::cli::antigravity::McpConfigCheck::Configured { server_name } => {
+                crate::cli::antigravity::McpConfigCheck::Configured { server_name, .. } => {
                     log_ok("Antigravity MCP proxy", format!("'{}' configured", server_name));
                     ok_count += 1;
                 }
@@ -366,7 +366,7 @@ pub fn run_antigravity() -> anyhow::Result<()> {
             log_ok("Binary found", format!("Antigravity v{} at {}", version, path.display()));
 
             match crate::cli::antigravity::check_mcp_config(&path) {
-                crate::cli::antigravity::McpConfigCheck::Configured { server_name } => {
+                crate::cli::antigravity::McpConfigCheck::Configured { server_name, .. } => {
                     log_ok("MCP proxy", format!("'{}' configured", server_name));
                     println!("        Enforcement label: L2 ROUTED ONLY");
                 }

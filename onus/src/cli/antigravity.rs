@@ -7,7 +7,7 @@
 //! Direct Antigravity agent actions that do not route through Onus remain outside
 //! Onus control.
 
-use clap::Args;
+use clap::{Args, ValueEnum};
 use std::path::{Path, PathBuf};
 
 const SERVER_NAME: &str = "onus-mcp-proxy";
@@ -28,9 +28,22 @@ pub enum ExtensionCheck {
 
 #[derive(Debug)]
 pub enum McpConfigCheck {
-    Configured { server_name: String },
+    Configured {
+        server_name: String,
+        config_paths: Vec<PathBuf>,
+    },
     NotFound,
     Error(String),
+}
+
+#[derive(Clone, Debug, ValueEnum)]
+pub enum AntigravitySurface {
+    /// Configure both Antigravity CLI and IDE MCP config locations.
+    All,
+    /// Configure Antigravity CLI's dedicated MCP profile.
+    Cli,
+    /// Configure Antigravity IDE's MCP profile.
+    Ide,
 }
 
 #[derive(Args)]
@@ -38,6 +51,10 @@ pub struct AntigravityMcpArgs {
     /// Upstream MCP server binary that Onus should wrap.
     #[arg(long)]
     pub server: PathBuf,
+
+    /// Which Antigravity surface to configure.
+    #[arg(long, value_enum, default_value_t = AntigravitySurface::All)]
+    pub surface: AntigravitySurface,
 
     /// Arguments passed to the upstream MCP server after `--`.
     #[arg(last = true)]
@@ -52,10 +69,46 @@ fn home_dir() -> PathBuf {
 }
 
 pub fn antigravity_mcp_config_path() -> PathBuf {
+    antigravity_cli_mcp_config_path()
+}
+
+pub fn antigravity_cli_mcp_config_path() -> PathBuf {
+    home_dir()
+        .join(".gemini")
+        .join("antigravity-cli")
+        .join("mcp_config.json")
+}
+
+pub fn antigravity_ide_mcp_config_path() -> PathBuf {
+    home_dir()
+        .join(".gemini")
+        .join("antigravity")
+        .join("mcp_config.json")
+}
+
+fn legacy_antigravity_mcp_config_path() -> PathBuf {
     home_dir()
         .join(".gemini")
         .join("config")
         .join("mcp_config.json")
+}
+
+fn selected_config_paths(surface: &AntigravitySurface) -> Vec<PathBuf> {
+    match surface {
+        AntigravitySurface::All => vec![
+            antigravity_cli_mcp_config_path(),
+            antigravity_ide_mcp_config_path(),
+        ],
+        AntigravitySurface::Cli => vec![antigravity_cli_mcp_config_path()],
+        AntigravitySurface::Ide => vec![antigravity_ide_mcp_config_path()],
+    }
+}
+
+fn known_config_paths() -> Vec<PathBuf> {
+    vec![
+        antigravity_cli_mcp_config_path(),
+        antigravity_ide_mcp_config_path(),
+    ]
 }
 
 fn candidate_binaries() -> Vec<PathBuf> {
@@ -120,10 +173,8 @@ pub fn find_antigravity() -> AntigravityCheck {
 }
 
 fn get_version(path: &Path) -> Result<String, String> {
-    let output = std::process::Command::new(path)
-        .arg("--version")
-        .output()
-        .map_err(|e| format!("cannot run {} --version: {e}", path.display()))?;
+    let output =
+        command_output_with_timeout(path, &["--version"], std::time::Duration::from_secs(3))?;
 
     if !output.status.success() {
         return Err(format!(
@@ -142,6 +193,48 @@ fn get_version(path: &Path) -> Result<String, String> {
     } else {
         version
     })
+}
+
+fn command_output_with_timeout(
+    path: &Path,
+    args: &[&str],
+    timeout: std::time::Duration,
+) -> Result<std::process::Output, String> {
+    let mut child = std::process::Command::new(path)
+        .args(args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("cannot run {} {}: {e}", path.display(), args.join(" ")))?;
+
+    let started = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_status)) => {
+                return child
+                    .wait_with_output()
+                    .map_err(|e| format!("cannot read {} output: {e}", path.display()));
+            }
+            Ok(None) if started.elapsed() < timeout => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!(
+                    "{} {} timed out after {} ms",
+                    path.display(),
+                    args.join(" "),
+                    timeout.as_millis()
+                ));
+            }
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("cannot poll {}: {e}", path.display()));
+            }
+        }
+    }
 }
 
 pub fn check_extension_installed(_antigravity_path: &PathBuf) -> ExtensionCheck {
@@ -205,53 +298,71 @@ fn has_valid_onus_proxy(entry: &serde_json::Value) -> bool {
 }
 
 pub fn check_mcp_config(_antigravity_path: &PathBuf) -> McpConfigCheck {
-    let config_path = antigravity_mcp_config_path();
-    if !config_path.exists() {
-        return McpConfigCheck::NotFound;
+    let mut configured = Vec::new();
+    let mut errors = Vec::new();
+
+    for config_path in known_config_paths() {
+        if !config_path.exists() {
+            continue;
+        }
+
+        let content = match std::fs::read_to_string(&config_path) {
+            Ok(content) => content,
+            Err(e) => {
+                errors.push(format!("cannot read {}: {e}", config_path.display()));
+                continue;
+            }
+        };
+        if content.trim().is_empty() {
+            continue;
+        }
+
+        let json: serde_json::Value = match serde_json::from_str(&content) {
+            Ok(json) => json,
+            Err(e) => {
+                errors.push(format!("cannot parse {}: {e}", config_path.display()));
+                continue;
+            }
+        };
+
+        let Some(entry) = json
+            .get("mcpServers")
+            .and_then(serde_json::Value::as_object)
+            .and_then(|servers| servers.get(SERVER_NAME))
+        else {
+            continue;
+        };
+
+        if has_valid_onus_proxy(entry) {
+            configured.push(config_path);
+        } else {
+            errors.push(format!(
+                "{} entry must run `onus mcp-proxy --experimental --server <upstream>`",
+                config_path.display()
+            ));
+        }
     }
 
-    let content = match std::fs::read_to_string(&config_path) {
-        Ok(content) => content,
-        Err(e) => {
-            return McpConfigCheck::Error(format!("cannot read {}: {e}", config_path.display()))
-        }
-    };
-    if content.trim().is_empty() {
-        return McpConfigCheck::NotFound;
+    if !errors.is_empty() {
+        return McpConfigCheck::Error(errors.join("; "));
     }
 
-    let json: serde_json::Value = match serde_json::from_str(&content) {
-        Ok(json) => json,
-        Err(e) => {
-            return McpConfigCheck::Error(format!("cannot parse {}: {e}", config_path.display()))
-        }
-    };
-
-    let Some(entry) = json
-        .get("mcpServers")
-        .and_then(serde_json::Value::as_object)
-        .and_then(|servers| servers.get(SERVER_NAME))
-    else {
-        return McpConfigCheck::NotFound;
-    };
-
-    if has_valid_onus_proxy(entry) {
+    if configured.is_empty() {
+        McpConfigCheck::NotFound
+    } else {
         McpConfigCheck::Configured {
             server_name: SERVER_NAME.to_string(),
+            config_paths: configured,
         }
-    } else {
-        McpConfigCheck::Error(
-            "mcp_config.json entry must run `onus mcp-proxy --experimental --server <upstream>`"
-                .to_string(),
-        )
     }
 }
 
 pub fn add_mcp_server(
     _antigravity_path: &PathBuf,
-    onus_path: &PathBuf,
+    onus_path: &Path,
     upstream_server: &Path,
     upstream_args: &[String],
+    surface: &AntigravitySurface,
 ) -> anyhow::Result<()> {
     if !upstream_server.exists() {
         anyhow::bail!(
@@ -260,13 +371,25 @@ pub fn add_mcp_server(
         );
     }
 
-    let config_path = antigravity_mcp_config_path();
+    for config_path in selected_config_paths(surface) {
+        add_mcp_server_at(&config_path, onus_path, upstream_server, upstream_args)?;
+    }
+
+    Ok(())
+}
+
+fn add_mcp_server_at(
+    config_path: &Path,
+    onus_path: &Path,
+    upstream_server: &Path,
+    upstream_args: &[String],
+) -> anyhow::Result<()> {
     if let Some(parent) = config_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
 
     let mut config: serde_json::Value = if config_path.exists() {
-        let content = std::fs::read_to_string(&config_path)?;
+        let content = std::fs::read_to_string(config_path)?;
         serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}))
     } else {
         serde_json::json!({})
@@ -287,7 +410,7 @@ pub fn add_mcp_server(
         proxy_entry(onus_path, upstream_server, upstream_args),
     );
 
-    std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
+    std::fs::write(config_path, serde_json::to_string_pretty(&config)?)?;
     Ok(())
 }
 
@@ -305,14 +428,21 @@ pub fn run_setup() -> anyhow::Result<()> {
             println!("  Current supported Onus path: L2 ROUTED ONLY via MCP proxy.");
             println!();
             match check_mcp_config(&path) {
-                McpConfigCheck::Configured { server_name } => {
+                McpConfigCheck::Configured {
+                    server_name,
+                    config_paths,
+                } => {
                     println!("  MCP proxy configured: '{}'", server_name);
-                    println!("  Config file: {}", antigravity_mcp_config_path().display());
+                    for path in config_paths {
+                        println!("  Config file: {}", path.display());
+                    }
                 }
                 McpConfigCheck::NotFound => {
                     println!("  MCP proxy not configured.");
-                    let path = antigravity_mcp_config_path();
-                    println!("  Config file expected at: {}", path.display());
+                    println!("  Config files expected at:");
+                    for path in known_config_paths() {
+                        println!("    {}", path.display());
+                    }
                     println!();
                     println!("  To configure a real routed MCP server, run:");
                     println!("    onus antigravity-mcp --server <UPSTREAM_MCP_SERVER> -- <UPSTREAM_ARGS>");
@@ -343,20 +473,34 @@ pub fn run_mcp_setup(args: AntigravityMcpArgs) -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("cannot determine onus binary path: {e}"))?;
 
     let antigravity_path = match find_antigravity() {
-        AntigravityCheck::Available { path, .. } => path,
-        AntigravityCheck::NotFound => {
-            anyhow::bail!(
-                "Antigravity CLI not found. Install Antigravity first, then rerun this command."
-            )
+        AntigravityCheck::Available { path, version } => {
+            println!("Antigravity CLI found: v{} at {}", version, path.display());
+            path
         }
-        AntigravityCheck::Error(e) => anyhow::bail!("Antigravity check failed: {e}"),
+        AntigravityCheck::NotFound => {
+            println!(
+                "Warning: Antigravity CLI not found on PATH; writing MCP config files anyway."
+            );
+            PathBuf::from("antigravity")
+        }
+        AntigravityCheck::Error(e) => {
+            println!("Warning: Antigravity check failed ({e}); writing MCP config files anyway.");
+            PathBuf::from("antigravity")
+        }
     };
 
-    add_mcp_server(&antigravity_path, &onus_path, &args.server, &args.args)?;
+    add_mcp_server(
+        &antigravity_path,
+        &onus_path,
+        &args.server,
+        &args.args,
+        &args.surface,
+    )?;
 
-    let config_path = antigravity_mcp_config_path();
     println!("Antigravity MCP proxy configured.");
-    println!("  Config: {}", config_path.display());
+    for config_path in selected_config_paths(&args.surface) {
+        println!("  Config: {}", config_path.display());
+    }
     println!("  Server: {}", args.server.display());
     println!("  Enforcement: L2 ROUTED ONLY");
     println!();
@@ -365,37 +509,44 @@ pub fn run_mcp_setup(args: AntigravityMcpArgs) -> anyhow::Result<()> {
 }
 
 pub fn run_uninstall() -> anyhow::Result<()> {
-    let config_path = antigravity_mcp_config_path();
-    if !config_path.exists() {
-        println!(
-            "No Antigravity MCP config found at {}",
-            config_path.display()
-        );
-        return Ok(());
-    }
+    let mut paths = known_config_paths();
+    paths.push(legacy_antigravity_mcp_config_path());
+    let mut touched = false;
 
-    let content = std::fs::read_to_string(&config_path)?;
-    let mut config: serde_json::Value = serde_json::from_str(&content)?;
-    if let Some(servers) = config
-        .get_mut("mcpServers")
-        .and_then(serde_json::Value::as_object_mut)
-    {
-        servers.remove(SERVER_NAME);
-        if servers.is_empty() {
-            config.as_object_mut().unwrap().remove("mcpServers");
+    for config_path in paths {
+        if !config_path.exists() {
+            continue;
         }
+
+        let content = std::fs::read_to_string(&config_path)?;
+        let mut config: serde_json::Value = serde_json::from_str(&content)?;
+        if let Some(servers) = config
+            .get_mut("mcpServers")
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            servers.remove(SERVER_NAME);
+            if servers.is_empty() {
+                config.as_object_mut().unwrap().remove("mcpServers");
+            }
+        }
+
+        if config.as_object().is_none_or(|obj| obj.is_empty()) {
+            std::fs::remove_file(&config_path)?;
+            println!(
+                "Removed empty Antigravity MCP config: {}",
+                config_path.display()
+            );
+        } else {
+            std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
+            println!("Removed Onus MCP proxy from {}", config_path.display());
+        }
+        touched = true;
     }
 
-    if config.as_object().is_none_or(|obj| obj.is_empty()) {
-        std::fs::remove_file(&config_path)?;
-        println!(
-            "Removed empty Antigravity MCP config: {}",
-            config_path.display()
-        );
-    } else {
-        std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
-        println!("Removed Onus MCP proxy from {}", config_path.display());
+    if !touched {
+        println!("No Antigravity MCP config found.");
     }
+
     Ok(())
 }
 
@@ -411,19 +562,25 @@ pub fn run_doctor() -> anyhow::Result<()> {
                 path.display()
             );
             match check_mcp_config(&path) {
-                McpConfigCheck::Configured { server_name } => {
+                McpConfigCheck::Configured {
+                    server_name,
+                    config_paths,
+                } => {
                     println!(
-                        "  [OK]  MCP proxy: '{}' configured in {}",
+                        "  [OK]  MCP proxy: '{}' configured for {} surface(s)",
                         server_name,
-                        antigravity_mcp_config_path().display()
+                        config_paths.len()
                     );
+                    for path in config_paths {
+                        println!("        Config: {}", path.display());
+                    }
                     println!("        Enforcement label: L2 ROUTED ONLY");
                 }
                 McpConfigCheck::NotFound => {
-                    println!(
-                        "  [WARN] MCP proxy: not configured at {}",
-                        antigravity_mcp_config_path().display()
-                    );
+                    println!("  [WARN] MCP proxy: not configured");
+                    for path in known_config_paths() {
+                        println!("        Missing: {}", path.display());
+                    }
                 }
                 McpConfigCheck::Error(e) => {
                     println!("  [FAIL] MCP proxy: {}", e);
@@ -472,6 +629,44 @@ pub fn l3_workspace_advice() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    struct HomeGuard {
+        _lock: MutexGuard<'static, ()>,
+        old_home: Option<String>,
+        old_userprofile: Option<String>,
+    }
+
+    impl HomeGuard {
+        fn set(root: &Path) -> Self {
+            static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+            let guard = LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+            let old_home = std::env::var("HOME").ok();
+            let old_userprofile = std::env::var("USERPROFILE").ok();
+            std::env::set_var("HOME", root);
+            std::env::set_var("USERPROFILE", root);
+            Self {
+                _lock: guard,
+                old_home,
+                old_userprofile,
+            }
+        }
+    }
+
+    impl Drop for HomeGuard {
+        fn drop(&mut self) {
+            if let Some(value) = self.old_home.take() {
+                std::env::set_var("HOME", value);
+            } else {
+                std::env::remove_var("HOME");
+            }
+            if let Some(value) = self.old_userprofile.take() {
+                std::env::set_var("USERPROFILE", value);
+            } else {
+                std::env::remove_var("USERPROFILE");
+            }
+        }
+    }
 
     #[test]
     fn test_find_antigravity_no_panic() {
@@ -483,6 +678,7 @@ mod tests {
         let path = antigravity_mcp_config_path();
         let rendered = path.to_string_lossy();
         assert!(rendered.contains(".gemini"));
+        assert!(rendered.contains("antigravity-cli"));
         assert!(rendered.contains("mcp_config.json"));
     }
 
@@ -511,7 +707,7 @@ mod tests {
     }
 
     #[test]
-    fn test_add_mcp_server_writes_shared_antigravity_config() {
+    fn test_add_mcp_server_writes_cli_and_ide_antigravity_configs() {
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -521,38 +717,39 @@ mod tests {
         let upstream = root.join("fake-mcp-server");
         std::fs::write(&upstream, "").unwrap();
 
-        let old_home = std::env::var("HOME").ok();
-        let old_userprofile = std::env::var("USERPROFILE").ok();
-        std::env::set_var("HOME", &root);
-        std::env::set_var("USERPROFILE", &root);
+        let _home = HomeGuard::set(&root);
 
-        let result = add_mcp_server(
+        add_mcp_server(
             &PathBuf::from("antigravity"),
             &PathBuf::from("/usr/local/bin/onus"),
             &upstream,
             &["--demo".to_string()],
-        );
+            &AntigravitySurface::All,
+        )
+        .unwrap();
 
-        if let Some(value) = old_home {
-            std::env::set_var("HOME", value);
-        } else {
-            std::env::remove_var("HOME");
+        for config_path in [
+            root.join(".gemini")
+                .join("antigravity-cli")
+                .join("mcp_config.json"),
+            root.join(".gemini")
+                .join("antigravity")
+                .join("mcp_config.json"),
+        ] {
+            let content = std::fs::read_to_string(config_path).unwrap();
+            let config: serde_json::Value = serde_json::from_str(&content).unwrap();
+            let entry = &config["mcpServers"][SERVER_NAME];
+            assert!(has_valid_onus_proxy(entry));
+            assert_eq!(entry["args"][4], "--");
+            assert_eq!(entry["args"][5], "--demo");
         }
-        if let Some(value) = old_userprofile {
-            std::env::set_var("USERPROFILE", value);
-        } else {
-            std::env::remove_var("USERPROFILE");
+
+        match check_mcp_config(&PathBuf::from("antigravity")) {
+            McpConfigCheck::Configured { config_paths, .. } => {
+                assert_eq!(config_paths.len(), 2);
+            }
+            other => panic!("expected configured Antigravity MCP paths, got {other:?}"),
         }
-
-        result.unwrap();
-
-        let config_path = root.join(".gemini").join("config").join("mcp_config.json");
-        let content = std::fs::read_to_string(config_path).unwrap();
-        let config: serde_json::Value = serde_json::from_str(&content).unwrap();
-        let entry = &config["mcpServers"][SERVER_NAME];
-        assert!(has_valid_onus_proxy(entry));
-        assert_eq!(entry["args"][4], "--");
-        assert_eq!(entry["args"][5], "--demo");
 
         let _ = std::fs::remove_dir_all(root);
     }

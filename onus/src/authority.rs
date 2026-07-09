@@ -761,7 +761,10 @@ mod tests {
             ttl_seconds: 60,
             human_approved: false,
         });
-        assert!(denied.is_err(), "broker execution must require human approval");
+        assert!(
+            denied.is_err(),
+            "broker execution must require human approval"
+        );
 
         let receipt = broker_execute(BrokerExecuteOptions {
             authority_id: authority_id.clone(),
