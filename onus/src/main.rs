@@ -34,6 +34,7 @@ fn main() -> anyhow::Result<()> {
         onus_core::cli::Commands::McpProxy(args) => onus_core::cli::mcp_proxy::run(args)?,
         onus_core::cli::Commands::Shell(args) => onus_core::cli::shell::run(args)?,
         onus_core::cli::Commands::CursorHook(args) => onus_core::cli::cursor_hook::run(args)?,
+        onus_core::cli::Commands::CursorMcp(args) => onus_core::cli::cursor::run_mcp_setup(args)?,
         onus_core::cli::Commands::AntigravityMcp(args) => {
             onus_core::cli::antigravity::run_mcp_setup(args)?
         }

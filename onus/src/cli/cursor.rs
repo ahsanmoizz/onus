@@ -16,7 +16,21 @@
 //! This module handles binary detection, hook installation/removal, MCP config
 //! management, setup, uninstall, doctor diagnostics, and L3 workspace fallback.
 
-use std::path::PathBuf;
+use clap::Args;
+use std::path::{Path, PathBuf};
+
+const MCP_SERVER_NAME: &str = "onus-mcp-proxy";
+
+#[derive(Args)]
+pub struct CursorMcpArgs {
+    /// Upstream MCP server binary that Onus should wrap.
+    #[arg(long)]
+    pub server: PathBuf,
+
+    /// Arguments passed to the upstream MCP server after `--`.
+    #[arg(last = true)]
+    pub args: Vec<String>,
+}
 
 // ── Path helpers ─────────────────────────────────────────────────────────────
 
@@ -121,7 +135,11 @@ fn get_version(path: &PathBuf) -> Option<String> {
             .filter(|o| o.status.success())
             .and_then(|o| {
                 let v = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                if v.is_empty() { None } else { Some(v) }
+                if v.is_empty() {
+                    None
+                } else {
+                    Some(v)
+                }
             });
     }
     // Cursor GUI binary might not support --version
@@ -179,8 +197,7 @@ pub fn install_hook() -> anyhow::Result<()> {
     };
 
     let mut config = existing.as_object().cloned().unwrap_or_default();
-    let onus_path = std::env::current_exe()
-        .unwrap_or_else(|_| PathBuf::from("onus"));
+    let onus_path = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("onus"));
 
     config.insert(
         "preToolUse".to_string(),
@@ -251,19 +268,83 @@ pub fn check_mcp_configured() -> McpConfigCheck {
         Err(_) => return McpConfigCheck::NotFound,
     };
 
-    if let Some(servers) = json.get("mcpServers").and_then(serde_json::Value::as_object) {
-        if servers.contains_key("onus") {
+    if let Some(entry) = json
+        .get("mcpServers")
+        .and_then(serde_json::Value::as_object)
+        .and_then(|servers| servers.get(MCP_SERVER_NAME).or_else(|| servers.get("onus")))
+    {
+        if has_valid_onus_proxy(entry) {
             return McpConfigCheck::Configured {
-                server_name: "onus".to_string(),
+                server_name: MCP_SERVER_NAME.to_string(),
             };
         }
+        return McpConfigCheck::Error(
+            "mcp.json entry must run `onus mcp-proxy --experimental --server <upstream>`"
+                .to_string(),
+        );
     }
 
     McpConfigCheck::NotFound
 }
 
-/// Add Onus as an MCP server in mcp.json.
-pub fn add_mcp_server() -> anyhow::Result<()> {
+fn proxy_entry(
+    onus_path: &Path,
+    upstream_server: &Path,
+    upstream_args: &[String],
+) -> serde_json::Value {
+    let mut args = vec![
+        "mcp-proxy".to_string(),
+        "--experimental".to_string(),
+        "--server".to_string(),
+        upstream_server.to_string_lossy().to_string(),
+    ];
+    if !upstream_args.is_empty() {
+        args.push("--".to_string());
+        args.extend(upstream_args.iter().cloned());
+    }
+
+    serde_json::json!({
+        "type": "stdio",
+        "command": onus_path.to_string_lossy(),
+        "args": args
+    })
+}
+
+fn has_valid_onus_proxy(entry: &serde_json::Value) -> bool {
+    let command_ok = entry
+        .get("command")
+        .and_then(serde_json::Value::as_str)
+        .map(|command| command.to_ascii_lowercase().contains("onus"))
+        .unwrap_or(false);
+    let args = entry.get("args").and_then(serde_json::Value::as_array);
+    let args_ok = args
+        .map(|args| {
+            let values: Vec<&str> = args.iter().filter_map(serde_json::Value::as_str).collect();
+            values.contains(&"mcp-proxy")
+                && values.contains(&"--experimental")
+                && values.contains(&"--server")
+                && values
+                    .iter()
+                    .position(|value| *value == "--server")
+                    .and_then(|index| values.get(index + 1))
+                    .is_some()
+        })
+        .unwrap_or(false);
+    command_ok && args_ok
+}
+
+pub fn add_mcp_proxy_server(
+    onus_path: &PathBuf,
+    upstream_server: &Path,
+    upstream_args: &[String],
+) -> anyhow::Result<()> {
+    if !upstream_server.exists() {
+        anyhow::bail!(
+            "upstream MCP server not found at {}",
+            upstream_server.display()
+        );
+    }
+
     let mcp_path = mcp_json_path();
     let existing = if mcp_path.exists() {
         let content = std::fs::read_to_string(&mcp_path)?;
@@ -279,15 +360,9 @@ pub fn add_mcp_server() -> anyhow::Result<()> {
         .or_insert_with(|| serde_json::json!({}));
     let servers = mcp_servers.as_object_mut().unwrap();
 
-    let onus_path = std::env::current_exe()
-        .unwrap_or_else(|_| PathBuf::from("onus"));
-
     servers.insert(
-        "onus".to_string(),
-        serde_json::json!({
-            "command": onus_path.to_string_lossy(),
-            "args": ["mcp-proxy"]
-        }),
+        MCP_SERVER_NAME.to_string(),
+        proxy_entry(onus_path, upstream_server, upstream_args),
     );
 
     let config_dir = cursor_config_dir();
@@ -297,6 +372,13 @@ pub fn add_mcp_server() -> anyhow::Result<()> {
     std::fs::write(&mcp_path, output)?;
 
     Ok(())
+}
+
+/// Add Onus as an MCP server in mcp.json.
+pub fn add_mcp_server() -> anyhow::Result<()> {
+    anyhow::bail!(
+        "Cursor MCP setup requires an explicit upstream server. Run `onus cursor-mcp --server <UPSTREAM_MCP_SERVER> -- <UPSTREAM_ARGS>`."
+    )
 }
 
 /// Remove Onus as an MCP server from mcp.json.
@@ -310,7 +392,10 @@ pub fn remove_mcp_server() -> anyhow::Result<()> {
     let mut config: serde_json::Value = serde_json::from_str(&content)?;
 
     if let Some(obj) = config.as_object_mut() {
-        if let Some(servers) = obj.get_mut("mcpServers").and_then(serde_json::Value::as_object_mut) {
+        if let Some(servers) = obj
+            .get_mut("mcpServers")
+            .and_then(serde_json::Value::as_object_mut)
+        {
             servers.remove("onus");
             if servers.is_empty() {
                 obj.remove("mcpServers");
@@ -358,9 +443,12 @@ pub fn run_setup() -> anyhow::Result<()> {
                     println!("  ✓ MCP server '{}' already configured", server_name);
                 }
                 McpConfigCheck::NotFound => {
-                    println!("  Configuring MCP server...");
-                    add_mcp_server()?;
-                    println!("  ✓ MCP server added at: {}", mcp_json_path().display());
+                    println!("  MCP proxy not configured.");
+                    println!("  To route a real MCP server through Onus, run:");
+                    println!(
+                        "    onus cursor-mcp --server <UPSTREAM_MCP_SERVER> -- <UPSTREAM_ARGS>"
+                    );
+                    return Ok(());
                 }
                 McpConfigCheck::Error(e) => {
                     println!("  ? MCP check: {}", e);
@@ -379,6 +467,21 @@ pub fn run_setup() -> anyhow::Result<()> {
         }
     }
 
+    Ok(())
+}
+
+pub fn run_mcp_setup(args: CursorMcpArgs) -> anyhow::Result<()> {
+    let onus_path = std::env::current_exe()
+        .map_err(|e| anyhow::anyhow!("cannot determine onus binary path: {e}"))?;
+
+    add_mcp_proxy_server(&onus_path, &args.server, &args.args)?;
+
+    println!("Cursor MCP proxy configured.");
+    println!("  Config: {}", mcp_json_path().display());
+    println!("  Server: {}", args.server.display());
+    println!("  Enforcement: L2 ROUTED ONLY");
+    println!();
+    println!("Only MCP calls routed through this proxy are governed by Onus.");
     Ok(())
 }
 
@@ -448,7 +551,11 @@ pub fn run_doctor() -> anyhow::Result<()> {
 
     match find_cursor() {
         CursorCheck::Available { version, path } => {
-            println!("  [{ok}]  Binary found: Cursor v{} at {}", version, path.display());
+            println!(
+                "  [{ok}]  Binary found: Cursor v{} at {}",
+                version,
+                path.display()
+            );
 
             match check_hook_installed() {
                 HookCheck::Installed { command } => {
@@ -466,10 +573,16 @@ pub fn run_doctor() -> anyhow::Result<()> {
             match check_mcp_configured() {
                 McpConfigCheck::Configured { server_name } => {
                     println!("  [{ok}]  MCP server: '{}' configured", server_name);
+                    println!("        Enforcement label: L2 ROUTED ONLY");
                 }
                 McpConfigCheck::NotFound => {
-                    println!("  [{warn}] MCP server: not configured");
-                    println!("    Run `onus setup --cursor` to configure.");
+                    println!(
+                        "  [{warn}] MCP server: not configured at {}",
+                        mcp_json_path().display()
+                    );
+                    println!(
+                        "    Run `onus cursor-mcp --server <UPSTREAM_MCP_SERVER> -- <UPSTREAM_ARGS>` to configure."
+                    );
                 }
                 McpConfigCheck::Error(e) => {
                     println!("  [{fail}] MCP server: error: {}", e);
@@ -588,15 +701,76 @@ mod tests {
     fn test_mcp_config_format() {
         let config = serde_json::json!({
             "mcpServers": {
-                "onus": {
+                "onus-mcp-proxy": {
+                    "type": "stdio",
                     "command": "/usr/local/bin/onus",
-                    "args": ["mcp-proxy"]
+                    "args": ["mcp-proxy", "--experimental", "--server", "/usr/local/bin/example-mcp"]
                 }
             }
         });
         let servers = config["mcpServers"].as_object().unwrap();
-        assert!(servers.contains_key("onus"));
-        assert_eq!(servers["onus"]["command"].as_str().unwrap(), "/usr/local/bin/onus");
+        assert!(servers.contains_key("onus-mcp-proxy"));
+        assert_eq!(
+            servers["onus-mcp-proxy"]["command"].as_str().unwrap(),
+            "/usr/local/bin/onus"
+        );
+        assert!(has_valid_onus_proxy(&servers["onus-mcp-proxy"]));
+    }
+
+    #[test]
+    fn test_dead_mcp_proxy_config_is_rejected() {
+        let config = serde_json::json!({
+            "command": "/usr/local/bin/onus",
+            "args": ["mcp-proxy"]
+        });
+        assert!(!has_valid_onus_proxy(&config));
+    }
+
+    #[test]
+    fn test_add_mcp_proxy_server_writes_valid_cursor_config() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("onus-cursor-test-{stamp}"));
+        std::fs::create_dir_all(&root).unwrap();
+        let upstream = root.join("fake-mcp-server");
+        std::fs::write(&upstream, "").unwrap();
+
+        let old_home = std::env::var("HOME").ok();
+        let old_userprofile = std::env::var("USERPROFILE").ok();
+        std::env::set_var("HOME", &root);
+        std::env::set_var("USERPROFILE", &root);
+
+        let result = add_mcp_proxy_server(
+            &PathBuf::from("/usr/local/bin/onus"),
+            &upstream,
+            &["--demo".to_string()],
+        );
+
+        if let Some(value) = old_home {
+            std::env::set_var("HOME", value);
+        } else {
+            std::env::remove_var("HOME");
+        }
+        if let Some(value) = old_userprofile {
+            std::env::set_var("USERPROFILE", value);
+        } else {
+            std::env::remove_var("USERPROFILE");
+        }
+
+        result.unwrap();
+
+        let config_path = root.join(".cursor").join("mcp.json");
+        let content = std::fs::read_to_string(config_path).unwrap();
+        let config: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let entry = &config["mcpServers"][MCP_SERVER_NAME];
+        assert_eq!(entry["type"], "stdio");
+        assert!(has_valid_onus_proxy(entry));
+        assert_eq!(entry["args"][4], "--");
+        assert_eq!(entry["args"][5], "--demo");
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -615,10 +789,19 @@ mod tests {
             }
         });
 
-        if let Some(servers) = config.get_mut("mcpServers").and_then(serde_json::Value::as_object_mut) {
+        if let Some(servers) = config
+            .get_mut("mcpServers")
+            .and_then(serde_json::Value::as_object_mut)
+        {
             servers.remove("onus");
         }
-        assert!(config["mcpServers"].as_object().unwrap().contains_key("other"));
-        assert!(!config["mcpServers"].as_object().unwrap().contains_key("onus"));
+        assert!(config["mcpServers"]
+            .as_object()
+            .unwrap()
+            .contains_key("other"));
+        assert!(!config["mcpServers"]
+            .as_object()
+            .unwrap()
+            .contains_key("onus"));
     }
 }
