@@ -98,6 +98,16 @@ pub struct AuthorizeOptions {
 }
 
 #[derive(Debug, Clone)]
+pub struct BrokerExecuteOptions {
+    pub authority_id: String,
+    pub session_id: String,
+    pub payload_path: PathBuf,
+    pub approver: String,
+    pub ttl_seconds: i64,
+    pub human_approved: bool,
+}
+
+#[derive(Debug, Clone)]
 pub struct ExecuteOptions {
     pub authority_id: String,
     pub capability_token: String,
@@ -217,6 +227,24 @@ pub fn authorize(options: AuthorizeOptions) -> Result<(CapabilityRecord, String)
         compensation: None,
     })?;
     Ok((record, capability_token))
+}
+
+pub fn broker_execute(options: BrokerExecuteOptions) -> Result<AuthorityReceipt> {
+    let authority_id = options.authority_id;
+    let payload_path = options.payload_path;
+    let (_record, capability_token) = authorize(AuthorizeOptions {
+        authority_id: authority_id.clone(),
+        session_id: options.session_id,
+        payload_path: payload_path.clone(),
+        approver: options.approver,
+        ttl_seconds: options.ttl_seconds,
+        human_approved: options.human_approved,
+    })?;
+    execute(ExecuteOptions {
+        authority_id,
+        capability_token,
+        payload_path,
+    })
 }
 
 pub fn execute(options: ExecuteOptions) -> Result<AuthorityReceipt> {
@@ -596,11 +624,40 @@ fn absolute_normalized(path: &Path) -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
 
     fn temp_root(name: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!("onus-l4-{}-{}", name, Uuid::new_v4()));
         fs::create_dir_all(&root).unwrap();
         root
+    }
+
+    struct DataDirGuard {
+        _lock: MutexGuard<'static, ()>,
+        old_data_dir: Option<std::ffi::OsString>,
+    }
+
+    impl DataDirGuard {
+        fn set(path: impl AsRef<Path>) -> Self {
+            static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+            let guard = LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+            let old_data_dir = std::env::var_os("ONUS_DATA_DIR");
+            std::env::set_var("ONUS_DATA_DIR", path.as_ref());
+            Self {
+                _lock: guard,
+                old_data_dir,
+            }
+        }
+    }
+
+    impl Drop for DataDirGuard {
+        fn drop(&mut self) {
+            if let Some(value) = self.old_data_dir.take() {
+                std::env::set_var("ONUS_DATA_DIR", value);
+            } else {
+                std::env::remove_var("ONUS_DATA_DIR");
+            }
+        }
     }
 
     fn payload(path: &Path, env: &str, row: &str, value: &str) {
@@ -620,7 +677,7 @@ mod tests {
     #[test]
     fn disposable_l4_authority_executes_once_and_compensates() {
         let root = temp_root("proof");
-        std::env::set_var("ONUS_DATA_DIR", root.join("data"));
+        let _data_dir = DataDirGuard::set(root.join("data"));
         let db = root.join("db.sqlite");
         let authority_id = format!("auth-{}", Uuid::new_v4());
         let metadata = init_disposable_db(InitDisposableDbOptions {
@@ -674,6 +731,74 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(!raw_receipts.contains(&secret));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn broker_execute_hides_capability_and_requires_human_approval() {
+        let root = temp_root("broker");
+        let _data_dir = DataDirGuard::set(root.join("data"));
+        let authority_id = format!("auth-{}", Uuid::new_v4());
+        let metadata = init_disposable_db(InitDisposableDbOptions {
+            authority_id: authority_id.clone(),
+            db_path: root.join("db.sqlite"),
+            environment_identity: "staging-test".to_string(),
+        })
+        .unwrap();
+        let payload_path = root.join("payload.json");
+        payload(
+            &payload_path,
+            &metadata.environment_identity,
+            "row-broker",
+            "broker-value",
+        );
+
+        let denied = broker_execute(BrokerExecuteOptions {
+            authority_id: authority_id.clone(),
+            session_id: "session-broker".to_string(),
+            payload_path: payload_path.clone(),
+            approver: "human".to_string(),
+            ttl_seconds: 60,
+            human_approved: false,
+        });
+        assert!(denied.is_err(), "broker execution must require human approval");
+
+        let receipt = broker_execute(BrokerExecuteOptions {
+            authority_id: authority_id.clone(),
+            session_id: "session-broker".to_string(),
+            payload_path: payload_path.clone(),
+            approver: "human".to_string(),
+            ttl_seconds: 60,
+            human_approved: true,
+        })
+        .unwrap();
+        assert_eq!(receipt.decision, "EXECUTED");
+        let serialized = serde_json::to_string(&receipt).unwrap();
+        assert!(!serialized.contains("onus-cap-"));
+        assert!(!serialized.contains("authority.secret"));
+
+        let all_receipts = load_receipts(&authority_id).unwrap();
+        assert_eq!(
+            all_receipts
+                .iter()
+                .filter(|receipt| receipt.decision == "CAPABILITY_ISSUED")
+                .count(),
+            1
+        );
+        assert_eq!(
+            all_receipts
+                .iter()
+                .filter(|receipt| receipt.decision == "EXECUTED")
+                .count(),
+            1
+        );
+        let raw_receipts = all_receipts
+            .iter()
+            .map(|receipt| serde_json::to_string(receipt).unwrap())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(!raw_receipts.contains("onus-cap-"));
+
         let _ = fs::remove_dir_all(root);
     }
 }

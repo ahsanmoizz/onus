@@ -15,6 +15,8 @@ pub enum AuthorityCommand {
     InitDisposableDb(InitDisposableDbArgs),
     /// Issue a short-lived exact-payload capability after human approval
     Authorize(AuthorizeArgs),
+    /// Authorize and execute inside Onus without exposing the capability token
+    BrokerExecute(BrokerExecuteArgs),
     /// Execute the broker-owned privileged action
     Execute(ExecuteArgs),
     /// Revoke an unused short-lived capability
@@ -50,6 +52,23 @@ pub struct AuthorizeArgs {
     #[arg(long, default_value_t = 300)]
     pub ttl_seconds: i64,
     /// Explicit proof of human approval for this narrow L4 capability.
+    #[arg(long)]
+    pub human_approved: bool,
+}
+
+#[derive(Args)]
+pub struct BrokerExecuteArgs {
+    #[arg(long)]
+    pub authority: String,
+    #[arg(long)]
+    pub session: String,
+    #[arg(long)]
+    pub payload: PathBuf,
+    #[arg(long)]
+    pub approver: String,
+    #[arg(long, default_value_t = 300)]
+    pub ttl_seconds: i64,
+    /// Explicit proof of human approval for this narrow L4 brokered action.
     #[arg(long)]
     pub human_approved: bool,
 }
@@ -96,6 +115,7 @@ pub fn run(args: AuthorityArgs) -> anyhow::Result<()> {
     match args.command {
         AuthorityCommand::InitDisposableDb(args) => init_disposable_db(args),
         AuthorityCommand::Authorize(args) => authorize(args),
+        AuthorityCommand::BrokerExecute(args) => broker_execute(args),
         AuthorityCommand::Execute(args) => execute(args),
         AuthorityCommand::Revoke(args) => revoke(args),
         AuthorityCommand::Compensate(args) => compensate(args),
@@ -138,6 +158,19 @@ fn authorize(args: AuthorizeArgs) -> anyhow::Result<()> {
             "note": "capability is short-lived, scoped, and not a long-lived credential"
         }))?
     );
+    Ok(())
+}
+
+fn broker_execute(args: BrokerExecuteArgs) -> anyhow::Result<()> {
+    let receipt = crate::authority::broker_execute(crate::authority::BrokerExecuteOptions {
+        authority_id: args.authority,
+        session_id: args.session,
+        payload_path: args.payload,
+        approver: args.approver,
+        ttl_seconds: args.ttl_seconds,
+        human_approved: args.human_approved,
+    })?;
+    println!("{}", serde_json::to_string_pretty(&receipt)?);
     Ok(())
 }
 
