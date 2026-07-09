@@ -27,6 +27,7 @@ pub mod upgrade;
 pub mod verify;
 pub mod workspace;
 pub mod handoff;
+pub mod ide_run;
 pub mod lease_cli;
 pub mod start;
 pub mod stop;
@@ -81,6 +82,9 @@ pub enum Commands {
 
     /// Run a command through Onus evaluation
     Run(run_cmd::RunArgs),
+
+    /// Launch Claude, Cursor, or Antigravity through an Onus L3 workspace
+    IdeRun(ide_run::IdeRunArgs),
 
     /// View a specific session summary
     Session(session::SessionArgs),

@@ -26,6 +26,7 @@ fn main() -> anyhow::Result<()> {
         onus_core::cli::Commands::Status => onus_core::cli::status::run()?,
         onus_core::cli::Commands::Log(args) => onus_core::cli::log_cmd::run(args)?,
         onus_core::cli::Commands::Run(args) => onus_core::cli::run_cmd::run(args)?,
+        onus_core::cli::Commands::IdeRun(args) => onus_core::cli::ide_run::run(args)?,
         onus_core::cli::Commands::Session(args) => onus_core::cli::session::run(args)?,
         onus_core::cli::Commands::Rules(args) => onus_core::cli::rules::run(args)?,
         onus_core::cli::Commands::Upgrade => onus_core::cli::upgrade::run()?,
