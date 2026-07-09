@@ -84,7 +84,7 @@ pub fn run(args: DoctorArgs) -> anyhow::Result<()> {
                     ok_count += 1;
                 }
                 ClaudeHookCheck::NotInstalled => {
-                    log_warn("Claude Code hook", "not installed — run `onus setup claude`".to_string());
+                    log_warn("Claude Code hook", "not installed — run `onus setup --claude`".to_string());
                     warn_count += 1;
                 }
                 ClaudeHookCheck::Error(e) => {
@@ -297,7 +297,7 @@ pub fn run_claude() -> anyhow::Result<()> {
                     }
                 }
                 ClaudeHookCheck::NotInstalled => {
-                    log_warn("Hook", "not installed. Run `onus setup claude`".to_string());
+                    log_warn("Hook", "not installed. Run `onus setup --claude`".to_string());
                 }
                 ClaudeHookCheck::Error(e) => {
                     log_fail("Hook check", format!("error: {}", e));
@@ -500,7 +500,7 @@ fn check_claude_cli() -> ClaudeCliCheck {
     let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let path = find_claude_on_path().unwrap_or_else(|| PathBuf::from("claude"));
 
-    // Try to get tool-use protocol version from `claude.json` schema
+    // Try to get tool-use protocol version from Claude settings metadata.
     let tool_use_version = get_tool_use_version();
 
     ClaudeCliCheck::Available { version, path, tool_use_version }
@@ -533,7 +533,7 @@ fn get_tool_use_version() -> Option<String> {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .ok()?;
-    let claude_config = PathBuf::from(home).join(".claude").join("claude.json");
+    let claude_config = PathBuf::from(home).join(".claude").join("settings.json");
     if !claude_config.exists() {
         return None;
     }
@@ -557,7 +557,17 @@ fn claude_config_path() -> PathBuf {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_default();
-    PathBuf::from(home).join(".claude").join("claude.json")
+    PathBuf::from(home).join(".claude").join("settings.json")
+}
+
+fn first_command_token(command: &str) -> &str {
+    let trimmed = command.trim();
+    if let Some(rest) = trimmed.strip_prefix('"') {
+        if let Some(end) = rest.find('"') {
+            return &rest[..end];
+        }
+    }
+    trimmed.split_whitespace().next().unwrap_or(trimmed)
 }
 
 fn check_claude_hook_installed() -> ClaudeHookCheck {
@@ -569,37 +579,59 @@ fn check_claude_hook_installed() -> ClaudeHookCheck {
 
     let content = match std::fs::read_to_string(&claude_config) {
         Ok(c) => c,
-        Err(e) => return ClaudeHookCheck::Error(format!("Cannot read {}: {}", claude_config.display(), e)),
+        Err(e) => {
+            return ClaudeHookCheck::Error(format!(
+                "Cannot read {}: {}",
+                claude_config.display(),
+                e
+            ))
+        }
     };
 
     let json: serde_json::Value = match serde_json::from_str(&content) {
         Ok(j) => j,
-        Err(e) => return ClaudeHookCheck::Error(format!("Cannot parse {}: {}", claude_config.display(), e)),
+        Err(e) => {
+            return ClaudeHookCheck::Error(format!(
+                "Cannot parse {}: {}",
+                claude_config.display(),
+                e
+            ))
+        }
     };
 
-    let hooks = match json.get("hooks") {
-        Some(h) => h,
-        None => return ClaudeHookCheck::NotInstalled,
+    let Some(groups) = json
+        .get("hooks")
+        .and_then(|hooks| hooks.get("PreToolUse"))
+        .and_then(|groups| groups.as_array())
+    else {
+        return ClaudeHookCheck::NotInstalled;
     };
 
-    let hook_arr = match hooks.as_array() {
-        Some(a) => a,
-        None => return ClaudeHookCheck::NotInstalled,
-    };
-
-    for hook in hook_arr {
-        if let Some(cmd) = hook.get("command").and_then(|c| c.as_str()) {
-            if cmd.contains("onus") && cmd.contains("claude-hook") {
-                let hook_path = PathBuf::from(cmd.split_whitespace().next().unwrap_or(cmd));
-                let mode = hook.get("mode").and_then(|m| m.as_str()).unwrap_or("best_effort");
-                return ClaudeHookCheck::Installed { hook_path, mode: mode.to_string() };
+    for group in groups {
+        let Some(handlers) = group.get("hooks").and_then(|hooks| hooks.as_array()) else {
+            continue;
+        };
+        for handler in handlers {
+            let command = handler.get("command").and_then(|c| c.as_str());
+            if let Some(cmd) = command {
+                if cmd.contains("onus") && cmd.contains("claude-hook") {
+                    let hook_path = first_command_token(cmd);
+                    let timeout = handler
+                        .get("timeout")
+                        .and_then(|timeout| timeout.as_i64())
+                        .map(|timeout| format!("timeout={}s", timeout))
+                        .unwrap_or_else(|| "timeout=default".to_string());
+                    return ClaudeHookCheck::Installed {
+                        hook_path: PathBuf::from(hook_path),
+                        mode: format!("L1 BEST-EFFORT, PreToolUse, {}", timeout),
+                    };
+                }
             }
         }
     }
 
     ClaudeHookCheck::NotInstalled
 }
-
 // ── Hook health test ──────────────────────────────────────────────────────────
 
 enum HookHealth {
@@ -756,7 +788,7 @@ mod tests {
     fn test_claude_config_path_format() {
         let path = claude_config_path();
         assert!(path.to_string_lossy().contains(".claude"));
-        assert!(path.to_string_lossy().contains("claude.json"));
+        assert!(path.to_string_lossy().contains("settings.json"));
     }
 
     #[test]

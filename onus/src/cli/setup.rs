@@ -4,8 +4,8 @@
 //! integration surfaces. Detects the surface and writes the appropriate
 //! configuration.
 
-use std::path::PathBuf;
 use clap::Args;
+use std::path::PathBuf;
 
 #[derive(Args)]
 pub struct SetupArgs {
@@ -115,7 +115,7 @@ pub fn run(args: SetupArgs) -> anyhow::Result<()> {
 pub fn run_claude() -> anyhow::Result<()> {
     println!("Onus Setup — Claude Code CLI\n");
     setup_claude_hook()?;
-    println!("\nClaude Code hook setup complete. Run `onus doctor claude` to verify.");
+    println!("\nClaude Code hook setup complete. Run `onus doctor --claude` to verify.");
     Ok(())
 }
 
@@ -162,12 +162,16 @@ pub fn detect_surfaces() -> Vec<DetectedSurface> {
     }
 
     // Check for Google Antigravity
-    if let crate::cli::antigravity::AntigravityCheck::Available { path, .. } = crate::cli::antigravity::find_antigravity() {
+    if let crate::cli::antigravity::AntigravityCheck::Available { path, .. } =
+        crate::cli::antigravity::find_antigravity()
+    {
         surfaces.push(DetectedSurface::Antigravity { path });
     }
 
     // Check for Cursor IDE
-    if let crate::cli::cursor::CursorCheck::Available { path, .. } = crate::cli::cursor::find_cursor() {
+    if let crate::cli::cursor::CursorCheck::Available { path, .. } =
+        crate::cli::cursor::find_cursor()
+    {
         surfaces.push(DetectedSurface::Cursor { path });
     }
 
@@ -207,7 +211,100 @@ fn claude_config_path() -> PathBuf {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home).join(".claude").join("settings.json")
+}
+
+fn legacy_claude_config_path() -> PathBuf {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| ".".to_string());
     PathBuf::from(home).join(".claude").join("claude.json")
+}
+
+fn shell_quote_path(path: &std::path::Path) -> String {
+    format!(
+        "\"{}\"",
+        path.to_string_lossy()
+            .replace('\\', "/")
+            .replace('"', "\\\"")
+    )
+}
+
+fn onus_claude_command(onus_path: &std::path::Path) -> String {
+    format!(
+        "{} claude-hook --disabled-behavior deny --timeout-ms 10000",
+        shell_quote_path(onus_path)
+    )
+}
+
+fn official_claude_hook_group(command: String) -> serde_json::Value {
+    serde_json::json!({
+        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit|Read|Glob|Grep|LS|WebFetch|WebSearch|Task|mcp__.*",
+        "hooks": [
+            {
+                "type": "command",
+                "command": command,
+                "timeout": 30
+            }
+        ]
+    })
+}
+
+fn command_has_onus_claude_hook(command: &str) -> bool {
+    command.contains("onus") && command.contains("claude-hook")
+}
+
+fn config_has_onus_claude_hook(config: &serde_json::Value) -> bool {
+    config
+        .get("hooks")
+        .and_then(|hooks| hooks.get("PreToolUse"))
+        .and_then(|groups| groups.as_array())
+        .map(|groups| {
+            groups.iter().any(|group| {
+                group
+                    .get("hooks")
+                    .and_then(|handlers| handlers.as_array())
+                    .map(|handlers| {
+                        handlers.iter().any(|handler| {
+                            handler
+                                .get("command")
+                                .and_then(|command| command.as_str())
+                                .map(command_has_onus_claude_hook)
+                                .unwrap_or(false)
+                        })
+                    })
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn remove_onus_claude_hook_groups(config: &mut serde_json::Value) -> usize {
+    let Some(groups) = config
+        .get_mut("hooks")
+        .and_then(|hooks| hooks.get_mut("PreToolUse"))
+        .and_then(|groups| groups.as_array_mut())
+    else {
+        return 0;
+    };
+
+    let before = groups.len();
+    groups.retain(|group| {
+        !group
+            .get("hooks")
+            .and_then(|handlers| handlers.as_array())
+            .map(|handlers| {
+                handlers.iter().any(|handler| {
+                    handler
+                        .get("command")
+                        .and_then(|command| command.as_str())
+                        .map(command_has_onus_claude_hook)
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false)
+    });
+    before - groups.len()
 }
 
 fn setup_claude_hook() -> anyhow::Result<()> {
@@ -215,13 +312,11 @@ fn setup_claude_hook() -> anyhow::Result<()> {
     let onus_path = std::env::current_exe()
         .map_err(|e| anyhow::anyhow!("Cannot determine onus binary path: {}", e))?;
 
-    // Ensure .claude directory exists
     if let Some(parent) = config_path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| anyhow::anyhow!("Cannot create {}: {}", parent.display(), e))?;
     }
 
-    // Read or create config
     let mut config: serde_json::Value = if config_path.exists() {
         let content = std::fs::read_to_string(&config_path)
             .map_err(|e| anyhow::anyhow!("Cannot read {}: {}", config_path.display(), e))?;
@@ -230,41 +325,26 @@ fn setup_claude_hook() -> anyhow::Result<()> {
         serde_json::json!({})
     };
 
-    // Add hooks array
-    let hooks = config.get_mut("hooks").and_then(|h| h.as_array_mut());
-    let onus_hook_cmd = format!(
-        "{} claude-hook",
-        onus_path.to_string_lossy().replace('\\', "/")
-    );
-
-    if let Some(hooks) = hooks {
-        // Check if onus hook already exists
-        let already_installed = hooks.iter().any(|h| {
-            h.get("command")
-                .and_then(|c| c.as_str())
-                .map(|c| c.contains("onus") && c.contains("claude-hook"))
-                .unwrap_or(false)
-        });
-
-        if already_installed {
-            println!("  Onus hook already registered in claude.json");
-            return Ok(());
-        }
-
-        hooks.push(serde_json::json!({
-            "command": onus_hook_cmd,
-            "mode": "best_effort",
-            "description": "Onus — AI agent firewall (BEST-EFFORT hook)"
-        }));
-    } else {
-        config["hooks"] = serde_json::json!([
-            {
-                "command": onus_hook_cmd,
-                "mode": "best_effort",
-                "description": "Onus — AI agent firewall (BEST-EFFORT hook)"
-            }
-        ]);
+    if config_has_onus_claude_hook(&config) {
+        println!("  Onus hook already registered in settings.json");
+        return Ok(());
     }
+
+    if !config.get("hooks").map(|h| h.is_object()).unwrap_or(false) {
+        config["hooks"] = serde_json::json!({});
+    }
+    if !config["hooks"]
+        .get("PreToolUse")
+        .map(|h| h.is_array())
+        .unwrap_or(false)
+    {
+        config["hooks"]["PreToolUse"] = serde_json::json!([]);
+    }
+
+    config["hooks"]["PreToolUse"]
+        .as_array_mut()
+        .expect("PreToolUse initialized as array")
+        .push(official_claude_hook_group(onus_claude_command(&onus_path)));
 
     let content = serde_json::to_string_pretty(&config)
         .map_err(|e| anyhow::anyhow!("Cannot serialize config: {}", e))?;
@@ -272,67 +352,138 @@ fn setup_claude_hook() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("Cannot write {}: {}", config_path.display(), e))?;
 
     println!("  Hook written to: {}", config_path.display());
-    println!("  Command: onus claude-hook");
-    println!("  Mode: best_effort");
+    println!("  Event: PreToolUse");
+    println!("  Command: onus claude-hook --disabled-behavior deny --timeout-ms 10000");
+    println!("  Enforcement: L1 BEST-EFFORT (Claude Code hooks can be disabled outside Onus)");
     println!();
-    println!("  To verify: run `onus doctor claude`");
+    println!("  To verify: run `onus doctor --claude`");
     println!("  To remove: run `onus uninstall --claude`");
 
     Ok(())
 }
-
 // ── Claude Code hook removal ──────────────────────────────────────────────────
 
 fn remove_claude_hook() -> anyhow::Result<()> {
     let config_path = claude_config_path();
 
     if !config_path.exists() {
-        println!("  No Claude config found at: {}", config_path.display());
-        println!("  Nothing to remove.");
-        return Ok(());
-    }
-
-    let content = std::fs::read_to_string(&config_path)
-        .map_err(|e| anyhow::anyhow!("Cannot read {}: {}", config_path.display(), e))?;
-    let mut config: serde_json::Value = serde_json::from_str(&content)
-        .map_err(|e| anyhow::anyhow!("Cannot parse {}: {}", config_path.display(), e))?;
-
-    let hooks = config.get_mut("hooks").and_then(|h| h.as_array_mut());
-    if let Some(hooks) = hooks {
-        let before = hooks.len();
-        hooks.retain(|h| {
-            !h.get("command")
-                .and_then(|c| c.as_str())
-                .map(|c| c.contains("onus") && c.contains("claude-hook"))
-                .unwrap_or(false)
-        });
-        let after = hooks.len();
-        if before == after {
-            println!("  No Onus hook found in claude.json");
-            return Ok(());
-        }
-        println!("  Removed Onus hook from claude.json (removed {})", before - after);
+        println!("  No Claude settings found at: {}", config_path.display());
     } else {
-        println!("  No hooks section found in claude.json");
-        return Ok(());
+        let content = std::fs::read_to_string(&config_path)
+            .map_err(|e| anyhow::anyhow!("Cannot read {}: {}", config_path.display(), e))?;
+        let mut config: serde_json::Value = serde_json::from_str(&content)
+            .map_err(|e| anyhow::anyhow!("Cannot parse {}: {}", config_path.display(), e))?;
+
+        let removed = remove_onus_claude_hook_groups(&mut config);
+        if removed == 0 {
+            println!("  No Onus PreToolUse hook found in settings.json");
+        } else {
+            println!(
+                "  Removed Onus PreToolUse hook from settings.json (removed {})",
+                removed
+            );
+            let content = serde_json::to_string_pretty(&config)
+                .map_err(|e| anyhow::anyhow!("Cannot serialize config: {}", e))?;
+            std::fs::write(&config_path, content)
+                .map_err(|e| anyhow::anyhow!("Cannot write {}: {}", config_path.display(), e))?;
+        }
     }
 
-    let content = serde_json::to_string_pretty(&config)
-        .map_err(|e| anyhow::anyhow!("Cannot serialize config: {}", e))?;
-    std::fs::write(&config_path, content)
-        .map_err(|e| anyhow::anyhow!("Cannot write {}: {}", config_path.display(), e))?;
+    let legacy_path = legacy_claude_config_path();
+    if legacy_path.exists() {
+        let content = std::fs::read_to_string(&legacy_path)
+            .map_err(|e| anyhow::anyhow!("Cannot read {}: {}", legacy_path.display(), e))?;
+        let mut config: serde_json::Value = serde_json::from_str(&content)
+            .map_err(|e| anyhow::anyhow!("Cannot parse {}: {}", legacy_path.display(), e))?;
+        if let Some(hooks) = config.get_mut("hooks").and_then(|h| h.as_array_mut()) {
+            let before = hooks.len();
+            hooks.retain(|h| {
+                !h.get("command")
+                    .and_then(|c| c.as_str())
+                    .map(command_has_onus_claude_hook)
+                    .unwrap_or(false)
+            });
+            let removed = before - hooks.len();
+            if removed > 0 {
+                println!(
+                    "  Removed legacy Onus hook from claude.json (removed {})",
+                    removed
+                );
+                let content = serde_json::to_string_pretty(&config)
+                    .map_err(|e| anyhow::anyhow!("Cannot serialize config: {}", e))?;
+                std::fs::write(&legacy_path, content)
+                    .map_err(|e| anyhow::anyhow!("Cannot write {}: {}", legacy_path.display(), e))?;
+            }
+        }
+    }
 
     Ok(())
 }
-
 // ── Help text ─────────────────────────────────────────────────────────────────
 
 pub fn help_text() -> String {
     r#"onus setup     — auto-detect surfaces and install hooks
-onus setup claude — install Onus hook for Claude Code CLI
+onus setup --claude — install Onus hook for Claude Code CLI
 onus setup vscode — install Onus VS Code extension (TBD)
 
 onus uninstall     — remove all Onus hooks
 onus uninstall --claude — remove Claude Code hook only"#
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn claude_config_path_uses_official_settings_json() {
+        let path = claude_config_path();
+        assert!(path.to_string_lossy().contains(".claude"));
+        assert!(path.to_string_lossy().ends_with("settings.json"));
+    }
+
+    #[test]
+    fn official_claude_hook_group_matches_pre_tool_use_shape() {
+        let group = official_claude_hook_group("\"/opt/onus/bin/onus\" claude-hook".to_string());
+        assert_eq!(group["matcher"], "Bash|Write|Edit|MultiEdit|NotebookEdit|Read|Glob|Grep|LS|WebFetch|WebSearch|Task|mcp__.*");
+        let handler = &group["hooks"][0];
+        assert_eq!(handler["type"], "command");
+        assert_eq!(handler["command"], "\"/opt/onus/bin/onus\" claude-hook");
+        assert_eq!(handler["timeout"], 30);
+    }
+
+    #[test]
+    fn detects_official_onus_claude_hook() {
+        let config = serde_json::json!({
+            "hooks": {
+                "PreToolUse": [
+                    official_claude_hook_group("\"/opt/onus/bin/onus\" claude-hook".to_string())
+                ]
+            }
+        });
+        assert!(config_has_onus_claude_hook(&config));
+    }
+
+    #[test]
+    fn removes_only_onus_claude_hook_group() {
+        let mut config = serde_json::json!({
+            "hooks": {
+                "PreToolUse": [
+                    official_claude_hook_group("\"/opt/onus/bin/onus\" claude-hook".to_string()),
+                    {
+                        "matcher": "Bash",
+                        "hooks": [
+                            {"type": "command", "command": "echo keep", "timeout": 30}
+                        ]
+                    }
+                ]
+            }
+        });
+        assert_eq!(remove_onus_claude_hook_groups(&mut config), 1);
+        assert_eq!(config["hooks"]["PreToolUse"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            config["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
+            "echo keep"
+        );
+    }
 }
