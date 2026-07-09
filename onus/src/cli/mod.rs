@@ -55,6 +55,9 @@ pub enum Commands {
     /// Claude Code tool-use hook
     ClaudeHook(claude_hook::ClaudeHookArgs),
 
+    /// Configure OpenAI Codex to route one upstream MCP server through Onus
+    CodexMcp(codex::CodexMcpArgs),
+
     /// Evaluate a single action and return a verdict (used by Claude Code preToolUse hook)
     Evaluate(evaluate::EvaluateArgs),
 

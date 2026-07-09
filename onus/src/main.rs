@@ -17,6 +17,7 @@ fn main() -> anyhow::Result<()> {
         onus_core::cli::Commands::Approvals(args) => onus_core::cli::approvals::run(args)?,
         onus_core::cli::Commands::Authority(args) => onus_core::cli::authority::run(args)?,
         onus_core::cli::Commands::ClaudeHook(args) => onus_core::cli::claude_hook::run(args)?,
+        onus_core::cli::Commands::CodexMcp(args) => onus_core::cli::codex::run_mcp_setup(args)?,
         onus_core::cli::Commands::Evaluate(args) => onus_core::cli::evaluate::run(args)?,
         onus_core::cli::Commands::Daemon(args) => onus_core::cli::daemon_cmd::run(args)?,
         onus_core::cli::Commands::Contract(args) => onus_core::cli::contract::run(args)?,

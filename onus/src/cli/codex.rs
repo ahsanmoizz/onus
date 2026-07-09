@@ -6,7 +6,19 @@
 //! - Codex-specific setup and uninstall helpers
 //! - L3 workspace fallback
 
+use clap::Args;
 use std::path::PathBuf;
+
+#[derive(Args)]
+pub struct CodexMcpArgs {
+    /// Upstream MCP server binary that Onus should wrap.
+    #[arg(long)]
+    pub server: PathBuf,
+
+    /// Arguments passed to the upstream MCP server after `--`.
+    #[arg(last = true)]
+    pub args: Vec<String>,
+}
 
 // ── Codex CLI detection ──────────────────────────────────────────────────────
 
@@ -19,48 +31,11 @@ pub enum CodexCliCheck {
 
 /// Try to detect Codex CLI on PATH.
 pub fn find_codex_cli() -> CodexCliCheck {
-    // Check `pip show openai-codex` first
-    if let Ok(output) = std::process::Command::new("pip")
-        .args(["show", "openai-codex"])
-        .output()
-    {
-        if output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for line in stdout.lines() {
-                if let Some(version) = line.strip_prefix("Version: ") {
-                    let path = find_codex_on_path()
-                        .unwrap_or_else(|| PathBuf::from("pip"));
-                    return CodexCliCheck::Available {
-                        version: version.trim().to_string(),
-                        path,
-                    };
-                }
-            }
-        }
-    }
-
-    // Check `codex --version`
-    if let Ok(output) = std::process::Command::new("codex")
-        .arg("--version")
-        .output()
-    {
-        if output.status.success() {
-            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            let path = find_codex_on_path().unwrap_or_else(|| PathBuf::from("codex"));
-            return CodexCliCheck::Available { version, path };
-        }
-    }
-
-    // Check npm global
-    if let Ok(output) = std::process::Command::new("npx.cmd")
-        .args(["--yes", "@openai/codex", "--version"])
-        .output()
-    {
-        if output.status.success() {
-            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            let path = find_codex_on_path().unwrap_or_else(|| PathBuf::from("npx"));
-            return CodexCliCheck::Available { version, path };
-        }
+    if let Some(path) = find_codex_on_path() {
+        return CodexCliCheck::Available {
+            version: "unknown".to_string(),
+            path,
+        };
     }
 
     CodexCliCheck::NotFound
@@ -114,7 +89,9 @@ pub fn check_mcp_config() -> McpConfigCheck {
 
     let content = match std::fs::read_to_string(&config_path) {
         Ok(c) => c,
-        Err(e) => return McpConfigCheck::Error(format!("Cannot read {}: {}", config_path.display(), e)),
+        Err(e) => {
+            return McpConfigCheck::Error(format!("Cannot read {}: {}", config_path.display(), e))
+        }
     };
 
     if content.contains("[mcp_servers.onus-mcp-proxy]") {
@@ -133,22 +110,62 @@ pub fn check_mcp_config() -> McpConfigCheck {
 }
 
 /// Generate the TOML content for the Onus MCP proxy server entry.
-fn generate_mcp_config(onus_bin: &str) -> String {
+fn toml_string(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+fn toml_array(values: &[String]) -> String {
+    let rendered = values
+        .iter()
+        .map(|value| toml_string(value))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("[{}]", rendered)
+}
+
+fn generate_mcp_config(onus_bin: &str, upstream_server: &str, upstream_args: &[String]) -> String {
+    let mut args = vec![
+        "mcp-proxy".to_string(),
+        "--experimental".to_string(),
+        "--server".to_string(),
+        upstream_server.to_string(),
+    ];
+    if !upstream_args.is_empty() {
+        args.push("--".to_string());
+        args.extend(upstream_args.iter().cloned());
+    }
     format!(
         r#"[mcp_servers.onus-mcp-proxy]
-command = "{}"
-args = ["mcp-proxy", "--server"]
+command = {}
+args = {}
 tool_timeout_sec = 30
 # Approval modes: "auto" = allow all, "prompt" = ask user, "approve" = require explicit approval
 # Onus recommends "prompt" for interactive or "approve" for strict
 default_tools_approval_mode = "prompt"
 "#,
-        onus_bin
+        toml_string(onus_bin),
+        toml_array(&args)
     )
 }
 
 /// Write the Onus MCP proxy entry into Codex config.toml.
 pub fn install_mcp_hook() -> anyhow::Result<()> {
+    anyhow::bail!(
+        "Codex MCP setup requires an explicit upstream server. Run `onus codex-mcp --server <UPSTREAM_MCP_SERVER> -- <UPSTREAM_ARGS>`."
+    )
+}
+
+pub fn install_mcp_proxy(
+    upstream_server: &PathBuf,
+    upstream_args: &[String],
+) -> anyhow::Result<()> {
+    if !upstream_server.exists() {
+        anyhow::bail!(
+            "upstream MCP server not found at {}",
+            upstream_server.display()
+        );
+    }
+
     let config_path = codex_config_path();
     if let Some(parent) = config_path.parent() {
         std::fs::create_dir_all(parent)
@@ -159,6 +176,7 @@ pub fn install_mcp_hook() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("Cannot determine onus binary path: {}", e))?
         .to_string_lossy()
         .replace('\\', "/");
+    let upstream = upstream_server.to_string_lossy().replace('\\', "/");
 
     let content = if config_path.exists() {
         let existing = std::fs::read_to_string(&config_path)
@@ -168,9 +186,13 @@ pub fn install_mcp_hook() -> anyhow::Result<()> {
             return Ok(());
         }
         // Append to existing config
-        format!("{}\n{}", existing.trim(), generate_mcp_config(&onus_bin))
+        format!(
+            "{}\n{}",
+            existing.trim(),
+            generate_mcp_config(&onus_bin, &upstream, upstream_args)
+        )
     } else {
-        generate_mcp_config(&onus_bin)
+        generate_mcp_config(&onus_bin, &upstream, upstream_args)
     };
 
     std::fs::write(&config_path, &content)
@@ -178,13 +200,20 @@ pub fn install_mcp_hook() -> anyhow::Result<()> {
 
     println!("  MCP proxy entry written to: {}", config_path.display());
     println!("  Server name: onus-mcp-proxy");
-    println!("  Command: {} mcp-proxy --server", onus_bin);
+    println!(
+        "  Command: {} mcp-proxy --experimental --server {}",
+        onus_bin, upstream
+    );
     println!("  Approval mode: prompt (tools require user approval)");
     println!();
     println!("  To verify: run `onus doctor --codex`");
     println!("  To remove: run `onus uninstall --codex`");
 
     Ok(())
+}
+
+pub fn run_mcp_setup(args: CodexMcpArgs) -> anyhow::Result<()> {
+    install_mcp_proxy(&args.server, &args.args)
 }
 
 /// Remove the Onus MCP proxy entry from Codex config.toml.
@@ -226,7 +255,10 @@ pub fn uninstall_mcp_hook() -> anyhow::Result<()> {
     std::fs::write(&config_path, &new_content)
         .map_err(|e| anyhow::anyhow!("Cannot write {}: {}", config_path.display(), e))?;
 
-    println!("  Removed Onus MCP proxy entry from {}", config_path.display());
+    println!(
+        "  Removed Onus MCP proxy entry from {}",
+        config_path.display()
+    );
     Ok(())
 }
 
@@ -251,7 +283,8 @@ pub fn l3_workspace_available() -> bool {
 /// Advice string for running Codex inside an L3 container.
 pub fn l3_workspace_advice() -> String {
     if l3_workspace_available() {
-        "Codex can be run inside an L3 bubblewrap container:\n  onus run --l3 -- codex run\n".to_string()
+        "Codex can be run inside an L3 bubblewrap container:\n  onus run --l3 -- codex run\n"
+            .to_string()
     } else {
         "L3 workspace isolation requires Linux + bubblewrap.\nCurrently on Windows: use the MCP proxy route instead.\n".to_string()
     }
@@ -279,20 +312,70 @@ mod tests {
     fn test_mcp_config_empty_no_config() {
         // Without a config file, should return NotFound
         match check_mcp_config() {
-            McpConfigCheck::NotFound => {} // expected
+            McpConfigCheck::NotFound => {}          // expected
             McpConfigCheck::Configured { .. } => {} // possible in CI
-            McpConfigCheck::Error(_) => {} // possible if HOME not set
+            McpConfigCheck::Error(_) => {}          // possible if HOME not set
         }
     }
 
     #[test]
     fn test_generate_mcp_config_format() {
-        let toml = generate_mcp_config("/usr/local/bin/onus");
+        let toml = generate_mcp_config(
+            "/usr/local/bin/onus",
+            "/usr/local/bin/example-mcp",
+            &["--demo".to_string()],
+        );
         assert!(toml.contains("[mcp_servers.onus-mcp-proxy]"));
         assert!(toml.contains("command"));
         assert!(toml.contains("/usr/local/bin/onus"));
         assert!(toml.contains("mcp-proxy"));
+        assert!(toml.contains("--experimental"));
+        assert!(toml.contains("/usr/local/bin/example-mcp"));
+        assert!(toml.contains("--demo"));
         assert!(toml.contains("approval_mode"));
+    }
+
+    #[test]
+    fn test_install_mcp_proxy_writes_explicit_upstream_config() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("onus-codex-test-{stamp}"));
+        std::fs::create_dir_all(&root).unwrap();
+        let upstream = root.join("fake-mcp-server");
+        std::fs::write(&upstream, "").unwrap();
+
+        let old_home = std::env::var("HOME").ok();
+        let old_userprofile = std::env::var("USERPROFILE").ok();
+        std::env::set_var("HOME", &root);
+        std::env::set_var("USERPROFILE", &root);
+
+        let result = install_mcp_proxy(&upstream, &["--demo".to_string()]);
+
+        if let Some(value) = old_home {
+            std::env::set_var("HOME", value);
+        } else {
+            std::env::remove_var("HOME");
+        }
+        if let Some(value) = old_userprofile {
+            std::env::set_var("USERPROFILE", value);
+        } else {
+            std::env::remove_var("USERPROFILE");
+        }
+
+        result.unwrap();
+
+        let config_path = root.join(".codex").join("config.toml");
+        let content = std::fs::read_to_string(config_path).unwrap();
+        assert!(content.contains("[mcp_servers.onus-mcp-proxy]"));
+        assert!(content.contains("mcp-proxy"));
+        assert!(content.contains("--experimental"));
+        assert!(content.contains("--server"));
+        assert!(content.contains("fake-mcp-server"));
+        assert!(content.contains("--demo"));
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
