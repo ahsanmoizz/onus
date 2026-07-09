@@ -106,6 +106,9 @@ pub enum Commands {
     /// VS Code Cursor agent hook
     CursorHook(cursor_hook::CursorHookArgs),
 
+    /// Configure Google Antigravity to route one upstream MCP server through Onus
+    AntigravityMcp(antigravity::AntigravityMcpArgs),
+
     /// Verify hash chain integrity of the audit trail
     Verify(verify::VerifyArgs),
 

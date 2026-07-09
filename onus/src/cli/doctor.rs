@@ -365,32 +365,31 @@ pub fn run_antigravity() -> anyhow::Result<()> {
         crate::cli::antigravity::AntigravityCheck::Available { version, path } => {
             log_ok("Binary found", format!("Antigravity v{} at {}", version, path.display()));
 
-            match crate::cli::antigravity::check_extension_installed(&path) {
-                crate::cli::antigravity::ExtensionCheck::Installed { path: ext_path, version: ext_ver } => {
-                    log_ok("Extension", format!("onus-firewall v{} at {}", ext_ver, ext_path.display()));
-                }
-                crate::cli::antigravity::ExtensionCheck::NotInstalled => {
-                    log_warn("Extension", "onus-firewall not installed".to_string());
-                    println!("\n  Run `onus setup --antigravity` for installation instructions.");
-                }
-                crate::cli::antigravity::ExtensionCheck::Error(e) => {
-                    log_fail("Extension check", format!("error: {}", e));
-                }
-            }
-
             match crate::cli::antigravity::check_mcp_config(&path) {
                 crate::cli::antigravity::McpConfigCheck::Configured { server_name } => {
                     log_ok("MCP proxy", format!("'{}' configured", server_name));
+                    println!("        Enforcement label: L2 ROUTED ONLY");
                 }
                 crate::cli::antigravity::McpConfigCheck::NotFound => {
-                    log_warn("MCP proxy", "Onus not configured as MCP server".to_string());
+                    log_warn(
+                        "MCP proxy",
+                        format!(
+                            "not configured at {}",
+                            crate::cli::antigravity::antigravity_mcp_config_path().display()
+                        ),
+                    );
+                    println!(
+                        "\n  Configure a routed MCP server with:\n    onus antigravity-mcp --server <UPSTREAM_MCP_SERVER> -- <UPSTREAM_ARGS>"
+                    );
+                    println!(
+                        "\n  Limit: direct Antigravity actions bypass Onus unless routed through this proxy."
+                    );
                 }
                 crate::cli::antigravity::McpConfigCheck::Error(e) => {
                     log_fail("MCP config", format!("error: {}", e));
                 }
             }
 
-            // L3 workspace advice
             let l3 = crate::cli::antigravity::l3_workspace_advice();
             if !l3.is_empty() {
                 println!();
@@ -399,7 +398,7 @@ pub fn run_antigravity() -> anyhow::Result<()> {
         }
         crate::cli::antigravity::AntigravityCheck::NotFound => {
             log_fail("Binary", "Antigravity not found on PATH".to_string());
-            println!("\n  Install it from: https://github.com/google/antigravity");
+            println!("\n  Install it from: https://antigravity.google/");
         }
         crate::cli::antigravity::AntigravityCheck::Error(e) => {
             log_fail("Antigravity", format!("check error: {}", e));

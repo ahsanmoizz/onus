@@ -1,27 +1,17 @@
-//! `onus antigravity` — Google Antigravity (VS Code fork) integration adapter.
+//! Google Antigravity integration helpers.
 //!
-//! Antigravity is a fork of VS Code with its own extension model. It does NOT
-//! have a native hook API. Integration is provided through:
+//! Current supported Onus path:
+//! - L2 ROUTED ONLY for MCP traffic explicitly configured through `onus mcp-proxy`.
+//! - L1 BEST-EFFORT for future cooperative hooks. A hook bridge is not claimed here.
 //!
-//! - Extension deployment: `antigravity --install-extension <vsix>` loads the
-//!   Onus extension (same extension.js as VS Code, packaged with a different
-//!   publisher/name).
-//! - MCP routing: `antigravity --add-mcp <json>` configures Onus as an MCP
-//!   server for tool-call interception.
-//! - CLI extension management: `--list-extensions`, `--uninstall-extension`,
-//!   `--update-extensions`.
-//!
-//! This module handles detection, version checking, setup, uninstall,
-//! doctor diagnostics, and L3 workspace fallback.
+//! Direct Antigravity agent actions that do not route through Onus remain outside
+//! Onus control.
 
-use std::path::PathBuf;
+use clap::Args;
+use std::path::{Path, PathBuf};
 
-// Known install path for Antigravity on Windows
-const ANTIGRAVITY_WINDOWS_BIN: &str = "D:\\Antigravity\\bin\\antigravity";
+const SERVER_NAME: &str = "onus-mcp-proxy";
 
-// ── Antigravity binary detection ──────────────────────────────────────────────
-
-/// Result of checking for Antigravity.
 #[derive(Debug)]
 pub enum AntigravityCheck {
     Available { version: String, path: PathBuf },
@@ -29,80 +19,6 @@ pub enum AntigravityCheck {
     Error(String),
 }
 
-/// Try to detect the Antigravity binary on PATH or at known install paths.
-pub fn find_antigravity() -> AntigravityCheck {
-    // 1. Try PATH first
-    if let Some(path) = find_on_path() {
-        if let Some(version) = get_version(&path) {
-            return AntigravityCheck::Available { version, path };
-        }
-    }
-
-    // 2. Try known Windows install path
-    let known_path = PathBuf::from(ANTIGRAVITY_WINDOWS_BIN);
-    if known_path.exists() {
-        if let Some(version) = get_version(&known_path) {
-            return AntigravityCheck::Available { version, path: known_path };
-        }
-    }
-
-    // 3. Try `antigravity` command directly
-    if let Ok(output) = std::process::Command::new("antigravity")
-        .arg("--version")
-        .output()
-    {
-        if output.status.success() {
-            let ver = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !ver.is_empty() {
-                let path = find_on_path().unwrap_or_else(|| PathBuf::from("antigravity"));
-                return AntigravityCheck::Available { version: ver, path };
-            }
-        }
-    }
-
-    AntigravityCheck::NotFound
-}
-
-fn find_on_path() -> Option<PathBuf> {
-    std::env::var_os("PATH").and_then(|paths| {
-        for dir in std::env::split_paths(&paths) {
-            let candidate = dir.join("antigravity");
-            if candidate.is_file() {
-                return Some(candidate);
-            }
-            #[cfg(windows)]
-            {
-                let candidate_exe = dir.join("antigravity.exe");
-                if candidate_exe.is_file() {
-                    return Some(candidate_exe);
-                }
-                let candidate_cmd = dir.join("antigravity.cmd");
-                if candidate_cmd.is_file() {
-                    return Some(candidate_cmd);
-                }
-            }
-        }
-        None
-    })
-}
-
-fn get_version(path: &PathBuf) -> Option<String> {
-    std::process::Command::new(path)
-        .arg("--version")
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .and_then(|o| {
-            let v = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            if v.is_empty() { None } else { Some(v) }
-        })
-}
-
-// ── Extension management ─────────────────────────────────────────────────────
-
-const EXTENSION_ID: &str = "onus.onus-firewall";
-
-/// Result of checking extension installation status.
 #[derive(Debug)]
 pub enum ExtensionCheck {
     Installed { path: PathBuf, version: String },
@@ -110,103 +26,6 @@ pub enum ExtensionCheck {
     Error(String),
 }
 
-/// Check whether the Onus extension is installed in Antigravity.
-pub fn check_extension_installed(antigravity_path: &PathBuf) -> ExtensionCheck {
-    let output = match std::process::Command::new(antigravity_path)
-        .args(["--list-extensions", "--show-versions"])
-        .output()
-    {
-        Ok(o) => o,
-        Err(e) => return ExtensionCheck::Error(format!("Cannot run antigravity: {}", e)),
-    };
-
-    if !output.status.success() {
-        return ExtensionCheck::Error(format!(
-            "antigravity --list-extensions exited with {}",
-            output.status
-        ));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    for line in stdout.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with(EXTENSION_ID) {
-            let version = trimmed
-                .strip_prefix(EXTENSION_ID)
-                .and_then(|s| s.strip_prefix('@'))
-                .unwrap_or("unknown")
-                .to_string();
-            // Get extension path
-            let ext_path = get_extension_path(antigravity_path);
-            return ExtensionCheck::Installed {
-                path: ext_path.unwrap_or_else(|| PathBuf::from("unknown")),
-                version,
-            };
-        }
-    }
-
-    ExtensionCheck::NotInstalled
-}
-
-fn get_extension_path(antigravity_path: &PathBuf) -> Option<PathBuf> {
-    let output = std::process::Command::new(antigravity_path)
-        .args(["--locate-extension", EXTENSION_ID])
-        .output()
-        .ok()?;
-
-    if output.status.success() {
-        let path_str = String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .next()?
-            .trim()
-            .to_string();
-        if !path_str.is_empty() {
-            return Some(PathBuf::from(path_str));
-        }
-    }
-    None
-}
-
-/// Install the Onus extension into Antigravity.
-/// `vsix_path` is the path to the packaged .vsix file.
-pub fn install_extension(antigravity_path: &PathBuf, vsix_path: &PathBuf) -> anyhow::Result<()> {
-    if !vsix_path.exists() {
-        anyhow::bail!("VSIX not found at: {}", vsix_path.display());
-    }
-
-    let output = std::process::Command::new(antigravity_path)
-        .args(["--install-extension", &vsix_path.to_string_lossy()])
-        .output()?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("antigravity --install-extension failed: {}", stderr.trim());
-    }
-
-    Ok(())
-}
-
-/// Uninstall the Onus extension from Antigravity.
-pub fn uninstall_extension(antigravity_path: &PathBuf) -> anyhow::Result<()> {
-    let output = std::process::Command::new(antigravity_path)
-        .args(["--uninstall-extension", EXTENSION_ID])
-        .output()?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        // Extension not installed is not a failure
-        if stderr.contains("not installed") {
-            return Ok(());
-        }
-        anyhow::bail!("antigravity --uninstall-extension failed: {}", stderr.trim());
-    }
-
-    Ok(())
-}
-
-// ── MCP management ────────────────────────────────────────────────────────────
-
-/// Result of checking MCP server configuration.
 #[derive(Debug)]
 pub enum McpConfigCheck {
     Configured { server_name: String },
@@ -214,211 +33,418 @@ pub enum McpConfigCheck {
     Error(String),
 }
 
-/// Check if Onus MCP proxy is configured in Antigravity.
-/// Antigravity stores MCP config in the user profile.
-pub fn check_mcp_config(antigravity_path: &PathBuf) -> McpConfigCheck {
-    // Antigravity stores MCP servers in its user profile.
-    // We check the extensions directory for our MCP configuration.
-    let ext_path = match get_extension_path(antigravity_path) {
-        Some(p) => p,
-        None => return McpConfigCheck::NotFound,
-    };
+#[derive(Args)]
+pub struct AntigravityMcpArgs {
+    /// Upstream MCP server binary that Onus should wrap.
+    #[arg(long)]
+    pub server: PathBuf,
 
-    // Extension is installed — check if it has MCP configuration
-    let mcp_config = ext_path.join(".mcp.json");
-    if mcp_config.exists() {
-        return McpConfigCheck::Configured {
-            server_name: "onus-mcp-proxy".to_string(),
-        };
-    }
-
-    McpConfigCheck::NotFound
+    /// Arguments passed to the upstream MCP server after `--`.
+    #[arg(last = true)]
+    pub args: Vec<String>,
 }
 
-/// Add Onus MCP proxy to Antigravity via --add-mcp.
-pub fn add_mcp_server(antigravity_path: &PathBuf, onus_path: &PathBuf) -> anyhow::Result<()> {
-    let mcp_json = serde_json::json!({
-        "name": "onus-mcp-proxy",
-        "command": onus_path.to_string_lossy(),
-        "args": ["mcp-proxy"]
-    });
+fn home_dir() -> PathBuf {
+    std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| ".".to_string())
+        .into()
+}
 
-    let output = std::process::Command::new(antigravity_path)
-        .args(["--add-mcp", &mcp_json.to_string()])
-        .output()?;
+pub fn antigravity_mcp_config_path() -> PathBuf {
+    home_dir()
+        .join(".gemini")
+        .join("config")
+        .join("mcp_config.json")
+}
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("antigravity --add-mcp failed: {}", stderr.trim());
+fn candidate_binaries() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Some(paths) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&paths) {
+            for name in ["agy", "antigravity"] {
+                candidates.push(dir.join(name));
+                #[cfg(windows)]
+                {
+                    candidates.push(dir.join(format!("{name}.exe")));
+                    candidates.push(dir.join(format!("{name}.cmd")));
+                }
+            }
+        }
     }
 
+    #[cfg(windows)]
+    {
+        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+            candidates.push(
+                PathBuf::from(local_app_data.clone())
+                    .join("Programs")
+                    .join("Antigravity")
+                    .join("bin")
+                    .join("agy.cmd"),
+            );
+            candidates.push(
+                PathBuf::from(local_app_data)
+                    .join("Programs")
+                    .join("Antigravity")
+                    .join("bin")
+                    .join("antigravity.cmd"),
+            );
+        }
+        candidates.push(PathBuf::from(
+            "C:\\Program Files\\Google\\Antigravity\\bin\\agy.cmd",
+        ));
+        candidates.push(PathBuf::from(
+            "C:\\Program Files\\Google\\Antigravity\\bin\\antigravity.cmd",
+        ));
+        candidates.push(PathBuf::from("D:\\Antigravity\\bin\\agy.cmd"));
+        candidates.push(PathBuf::from("D:\\Antigravity\\bin\\antigravity.cmd"));
+    }
+
+    candidates
+}
+
+pub fn find_antigravity() -> AntigravityCheck {
+    for path in candidate_binaries() {
+        if !path.is_file() {
+            continue;
+        }
+        match get_version(&path) {
+            Ok(version) => return AntigravityCheck::Available { version, path },
+            Err(_) => continue,
+        }
+    }
+
+    AntigravityCheck::NotFound
+}
+
+fn get_version(path: &Path) -> Result<String, String> {
+    let output = std::process::Command::new(path)
+        .arg("--version")
+        .output()
+        .map_err(|e| format!("cannot run {} --version: {e}", path.display()))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "{} --version exited with {}",
+            path.display(),
+            output.status
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    let version = if !stdout.is_empty() { stdout } else { stderr };
+    let version = version.lines().next().unwrap_or("").trim().to_string();
+    Ok(if version.is_empty() {
+        "unknown".to_string()
+    } else {
+        version
+    })
+}
+
+pub fn check_extension_installed(_antigravity_path: &PathBuf) -> ExtensionCheck {
+    ExtensionCheck::NotInstalled
+}
+
+pub fn install_extension(_antigravity_path: &PathBuf, _vsix_path: &PathBuf) -> anyhow::Result<()> {
+    anyhow::bail!(
+        "Antigravity extension installation is not implemented. Current supported path is MCP proxy routing only."
+    )
+}
+
+pub fn uninstall_extension(_antigravity_path: &PathBuf) -> anyhow::Result<()> {
     Ok(())
 }
 
-// ── Setup ─────────────────────────────────────────────────────────────────────
+fn proxy_entry(
+    onus_path: &Path,
+    upstream_server: &Path,
+    upstream_args: &[String],
+) -> serde_json::Value {
+    let mut args = vec![
+        "mcp-proxy".to_string(),
+        "--experimental".to_string(),
+        "--server".to_string(),
+        upstream_server.to_string_lossy().to_string(),
+    ];
+    if !upstream_args.is_empty() {
+        args.push("--".to_string());
+        args.extend(upstream_args.iter().cloned());
+    }
 
-/// Run `onus setup --antigravity`.
+    serde_json::json!({
+        "command": onus_path.to_string_lossy(),
+        "args": args,
+        "description": "Onus MCP gateway. L2 ROUTED ONLY: only traffic sent through this proxy is governed."
+    })
+}
+
+fn has_valid_onus_proxy(entry: &serde_json::Value) -> bool {
+    let command_ok = entry
+        .get("command")
+        .and_then(serde_json::Value::as_str)
+        .map(|command| command.to_ascii_lowercase().contains("onus"))
+        .unwrap_or(false);
+    let args = entry.get("args").and_then(serde_json::Value::as_array);
+    let args_ok = args
+        .map(|args| {
+            let values: Vec<&str> = args.iter().filter_map(serde_json::Value::as_str).collect();
+            values.contains(&"mcp-proxy")
+                && values.contains(&"--experimental")
+                && values.contains(&"--server")
+                && values
+                    .iter()
+                    .position(|value| *value == "--server")
+                    .and_then(|index| values.get(index + 1))
+                    .is_some()
+        })
+        .unwrap_or(false);
+    command_ok && args_ok
+}
+
+pub fn check_mcp_config(_antigravity_path: &PathBuf) -> McpConfigCheck {
+    let config_path = antigravity_mcp_config_path();
+    if !config_path.exists() {
+        return McpConfigCheck::NotFound;
+    }
+
+    let content = match std::fs::read_to_string(&config_path) {
+        Ok(content) => content,
+        Err(e) => {
+            return McpConfigCheck::Error(format!("cannot read {}: {e}", config_path.display()))
+        }
+    };
+    if content.trim().is_empty() {
+        return McpConfigCheck::NotFound;
+    }
+
+    let json: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(json) => json,
+        Err(e) => {
+            return McpConfigCheck::Error(format!("cannot parse {}: {e}", config_path.display()))
+        }
+    };
+
+    let Some(entry) = json
+        .get("mcpServers")
+        .and_then(serde_json::Value::as_object)
+        .and_then(|servers| servers.get(SERVER_NAME))
+    else {
+        return McpConfigCheck::NotFound;
+    };
+
+    if has_valid_onus_proxy(entry) {
+        McpConfigCheck::Configured {
+            server_name: SERVER_NAME.to_string(),
+        }
+    } else {
+        McpConfigCheck::Error(
+            "mcp_config.json entry must run `onus mcp-proxy --experimental --server <upstream>`"
+                .to_string(),
+        )
+    }
+}
+
+pub fn add_mcp_server(
+    _antigravity_path: &PathBuf,
+    onus_path: &PathBuf,
+    upstream_server: &Path,
+    upstream_args: &[String],
+) -> anyhow::Result<()> {
+    if !upstream_server.exists() {
+        anyhow::bail!(
+            "upstream MCP server not found at {}",
+            upstream_server.display()
+        );
+    }
+
+    let config_path = antigravity_mcp_config_path();
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let mut config: serde_json::Value = if config_path.exists() {
+        let content = std::fs::read_to_string(&config_path)?;
+        serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+
+    if !config.is_object() {
+        config = serde_json::json!({});
+    }
+    let obj = config.as_object_mut().unwrap();
+    let servers = obj
+        .entry("mcpServers".to_string())
+        .or_insert_with(|| serde_json::json!({}));
+    if !servers.is_object() {
+        *servers = serde_json::json!({});
+    }
+    servers.as_object_mut().unwrap().insert(
+        SERVER_NAME.to_string(),
+        proxy_entry(onus_path, upstream_server, upstream_args),
+    );
+
+    std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
+    Ok(())
+}
+
 pub fn run_setup() -> anyhow::Result<()> {
-    println!("Onus Setup — Google Antigravity\n");
+    println!("Onus Setup - Google Antigravity");
+    println!();
 
     match find_antigravity() {
         AntigravityCheck::Available { version, path } => {
-            println!("  Antigravity v{} found at: {}", version, path.display());
-
-            // Check if extension is already installed
-            match check_extension_installed(&path) {
-                ExtensionCheck::Installed { path: ext_path, version: ext_ver } => {
-                    println!("  ✓ Extension already installed at:");
-                    println!("      {} (v{})", ext_path.display(), ext_ver);
-                }
-                ExtensionCheck::NotInstalled => {
-                    println!("  Extension not installed.");
-                    println!("  To install, package the extension and run:");
-                    println!("    antigravity --install-extension onus-firewall-0.1.0.vsix");
-                    println!("  Or from the VSIX dir:");
-                    println!("    {} --install-extension <vsix-path>", path.display());
-                }
-                ExtensionCheck::Error(e) => {
-                    println!("  ? Extension check: {}", e);
-                }
-            }
-
-            // Check MCP config
+            println!(
+                "  Antigravity CLI found: v{} at {}",
+                version,
+                path.display()
+            );
+            println!("  Current supported Onus path: L2 ROUTED ONLY via MCP proxy.");
+            println!();
             match check_mcp_config(&path) {
                 McpConfigCheck::Configured { server_name } => {
-                    println!("  ✓ MCP proxy '{}' is configured", server_name);
+                    println!("  MCP proxy configured: '{}'", server_name);
+                    println!("  Config file: {}", antigravity_mcp_config_path().display());
                 }
                 McpConfigCheck::NotFound => {
                     println!("  MCP proxy not configured.");
-                    println!("  To configure:");
-                    let onus_path = std::env::current_exe()
-                        .unwrap_or_else(|_| PathBuf::from("onus"));
-                    println!("    {} --add-mcp '{{\"name\":\"onus-mcp-proxy\",\"command\":\"{}\",\"args\":[\"mcp-proxy\"]}}'",
-                        path.display(), onus_path.display());
+                    let path = antigravity_mcp_config_path();
+                    println!("  Config file expected at: {}", path.display());
+                    println!();
+                    println!("  To configure a real routed MCP server, run:");
+                    println!("    onus antigravity-mcp --server <UPSTREAM_MCP_SERVER> -- <UPSTREAM_ARGS>");
+                    println!();
+                    println!("  Until then, Antigravity remains UNVERIFIED for Onus protection.");
                 }
                 McpConfigCheck::Error(e) => {
-                    println!("  ? MCP check: {}", e);
+                    println!("  MCP config check failed: {}", e);
                 }
             }
-
-            println!("\n  ✓ Setup completed.");
         }
         AntigravityCheck::NotFound => {
-            println!("  Antigravity not found.");
-            println!("  Install it from: https://github.com/google/antigravity");
-            println!("  Or visit the Antigravity marketplace.");
+            println!("  Antigravity CLI not found.");
+            println!("  Install Google Antigravity, then rerun `onus setup --antigravity`.");
         }
         AntigravityCheck::Error(e) => {
-            println!("  Error: {}", e);
+            println!("  Antigravity check failed: {}", e);
         }
     }
 
+    println!();
+    println!("  Direct Antigravity actions outside an Onus-routed MCP proxy are not controlled.");
     Ok(())
 }
 
-/// Run `onus uninstall --antigravity`.
+pub fn run_mcp_setup(args: AntigravityMcpArgs) -> anyhow::Result<()> {
+    let onus_path = std::env::current_exe()
+        .map_err(|e| anyhow::anyhow!("cannot determine onus binary path: {e}"))?;
+
+    let antigravity_path = match find_antigravity() {
+        AntigravityCheck::Available { path, .. } => path,
+        AntigravityCheck::NotFound => {
+            anyhow::bail!(
+                "Antigravity CLI not found. Install Antigravity first, then rerun this command."
+            )
+        }
+        AntigravityCheck::Error(e) => anyhow::bail!("Antigravity check failed: {e}"),
+    };
+
+    add_mcp_server(&antigravity_path, &onus_path, &args.server, &args.args)?;
+
+    let config_path = antigravity_mcp_config_path();
+    println!("Antigravity MCP proxy configured.");
+    println!("  Config: {}", config_path.display());
+    println!("  Server: {}", args.server.display());
+    println!("  Enforcement: L2 ROUTED ONLY");
+    println!();
+    println!("Only MCP calls routed through this proxy are governed by Onus.");
+    Ok(())
+}
+
 pub fn run_uninstall() -> anyhow::Result<()> {
-    println!("Onus Uninstall — Google Antigravity\n");
+    let config_path = antigravity_mcp_config_path();
+    if !config_path.exists() {
+        println!(
+            "No Antigravity MCP config found at {}",
+            config_path.display()
+        );
+        return Ok(());
+    }
 
-    match find_antigravity() {
-        AntigravityCheck::Available { version, path } => {
-            println!("  Antigravity v{} found at: {}", version, path.display());
-
-            // Uninstall extension
-            match check_extension_installed(&path) {
-                ExtensionCheck::Installed { .. } => {
-                    println!("  Uninstalling extension...");
-                    match uninstall_extension(&path) {
-                        Ok(()) => println!("  ✓ Extension uninstalled."),
-                        Err(e) => println!("  ? Could not uninstall: {}", e),
-                    }
-                }
-                ExtensionCheck::NotInstalled => {
-                    println!("  Extension not installed — nothing to remove.");
-                }
-                ExtensionCheck::Error(e) => {
-                    println!("  ? Extension check: {}", e);
-                }
-            }
-
-            println!("\n  ✓ Uninstall completed.");
-        }
-        AntigravityCheck::NotFound => {
-            println!("  Antigravity not found — nothing to remove.");
-        }
-        AntigravityCheck::Error(e) => {
-            println!("  Error: {}", e);
+    let content = std::fs::read_to_string(&config_path)?;
+    let mut config: serde_json::Value = serde_json::from_str(&content)?;
+    if let Some(servers) = config
+        .get_mut("mcpServers")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        servers.remove(SERVER_NAME);
+        if servers.is_empty() {
+            config.as_object_mut().unwrap().remove("mcpServers");
         }
     }
 
+    if config.as_object().is_none_or(|obj| obj.is_empty()) {
+        std::fs::remove_file(&config_path)?;
+        println!(
+            "Removed empty Antigravity MCP config: {}",
+            config_path.display()
+        );
+    } else {
+        std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
+        println!("Removed Onus MCP proxy from {}", config_path.display());
+    }
     Ok(())
 }
 
-// ── Doctor ────────────────────────────────────────────────────────────────────
-
-/// Run `onus doctor --antigravity` — focused diagnostics.
 pub fn run_doctor() -> anyhow::Result<()> {
-    println!("Onus Doctor — Google Antigravity\n");
+    println!("Onus Doctor - Google Antigravity");
+    println!();
 
     match find_antigravity() {
         AntigravityCheck::Available { version, path } => {
-            println!("  Binary found: Antigravity v{}", version);
-            println!("  Path: {}", path.display());
-
-            // Check extension
-            match check_extension_installed(&path) {
-                ExtensionCheck::Installed { path: ext_path, version: ext_ver } => {
-                    println!("  Extension: ✓ onus-firewall v{}", ext_ver);
-                    println!("    at: {}", ext_path.display());
-                }
-                ExtensionCheck::NotInstalled => {
-                    println!("  Extension: ✗ not installed");
-                    println!("    Run `onus setup --antigravity` for instructions.");
-                }
-                ExtensionCheck::Error(e) => {
-                    println!("  Extension: ? check error: {}", e);
-                }
-            }
-
-            // Check MCP config
+            println!(
+                "  [OK]  Antigravity CLI: v{} at {}",
+                version,
+                path.display()
+            );
             match check_mcp_config(&path) {
                 McpConfigCheck::Configured { server_name } => {
-                    println!("  MCP proxy: ✓ {}", server_name);
+                    println!(
+                        "  [OK]  MCP proxy: '{}' configured in {}",
+                        server_name,
+                        antigravity_mcp_config_path().display()
+                    );
+                    println!("        Enforcement label: L2 ROUTED ONLY");
                 }
                 McpConfigCheck::NotFound => {
-                    println!("  MCP proxy: ✗ not configured");
+                    println!(
+                        "  [WARN] MCP proxy: not configured at {}",
+                        antigravity_mcp_config_path().display()
+                    );
                 }
                 McpConfigCheck::Error(e) => {
-                    println!("  MCP proxy: ? {}", e);
+                    println!("  [FAIL] MCP proxy: {}", e);
                 }
             }
-
-            // L3 workspace
-            let l3 = l3_workspace_advice();
-            if !l3.is_empty() {
-                println!();
-                println!("  L3 workspace: {}", l3);
-            }
-
-            println!("\n  ✓ Doctor check complete.");
         }
         AntigravityCheck::NotFound => {
-            println!("  Antigravity CLI not found on PATH.");
-            println!();
-            println!("  Install Antigravity from:");
-            println!("    https://github.com/google/antigravity");
+            println!("  [WARN] Antigravity CLI: not installed or not on PATH");
         }
         AntigravityCheck::Error(e) => {
-            println!("  Error checking Antigravity: {}", e);
+            println!("  [FAIL] Antigravity CLI: {}", e);
         }
     }
 
+    println!();
+    println!(
+        "  Limit: direct Antigravity actions can bypass Onus unless routed through the proxy."
+    );
     Ok(())
 }
 
-// ── L3 workspace ──────────────────────────────────────────────────────────────
-
-/// Check if L3 workspace isolation is available.
 pub fn l3_workspace_available() -> bool {
     #[cfg(target_os = "linux")]
     {
@@ -434,16 +460,14 @@ pub fn l3_workspace_available() -> bool {
     }
 }
 
-/// Return advice about L3 workspace for this platform.
 pub fn l3_workspace_advice() -> String {
     if l3_workspace_available() {
-        "bubblewrap available — use `onus run --l3` for sandboxed execution.".to_string()
+        "bubblewrap available - use `onus run --isolate -- <agent command>` for L3 workspaces."
+            .to_string()
     } else {
         "not available on this platform (requires Linux + bubblewrap)".to_string()
     }
 }
-
-// ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -451,50 +475,98 @@ mod tests {
 
     #[test]
     fn test_find_antigravity_no_panic() {
-        // Should never panic, even if Antigravity is not installed
-        let result = find_antigravity();
-        match result {
-            AntigravityCheck::Available { .. } => {} // acceptable
-            AntigravityCheck::NotFound => {}           // expected
-            AntigravityCheck::Error(_) => {}           // acceptable
+        let _ = find_antigravity();
+    }
+
+    #[test]
+    fn test_antigravity_mcp_config_path_format() {
+        let path = antigravity_mcp_config_path();
+        let rendered = path.to_string_lossy();
+        assert!(rendered.contains(".gemini"));
+        assert!(rendered.contains("mcp_config.json"));
+    }
+
+    #[test]
+    fn test_proxy_entry_requires_upstream_server() {
+        let entry = proxy_entry(
+            Path::new("/usr/local/bin/onus"),
+            Path::new("/usr/local/bin/example-mcp"),
+            &["--flag".to_string()],
+        );
+        assert!(has_valid_onus_proxy(&entry));
+        let args = entry["args"].as_array().unwrap();
+        assert!(args.iter().any(|v| v.as_str() == Some("--server")));
+        assert!(args
+            .iter()
+            .any(|v| v.as_str() == Some("/usr/local/bin/example-mcp")));
+    }
+
+    #[test]
+    fn test_proxy_entry_rejects_missing_server_arg() {
+        let entry = serde_json::json!({
+            "command": "/usr/local/bin/onus",
+            "args": ["mcp-proxy", "--experimental"]
+        });
+        assert!(!has_valid_onus_proxy(&entry));
+    }
+
+    #[test]
+    fn test_add_mcp_server_writes_shared_antigravity_config() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("onus-antigravity-test-{stamp}"));
+        std::fs::create_dir_all(&root).unwrap();
+        let upstream = root.join("fake-mcp-server");
+        std::fs::write(&upstream, "").unwrap();
+
+        let old_home = std::env::var("HOME").ok();
+        let old_userprofile = std::env::var("USERPROFILE").ok();
+        std::env::set_var("HOME", &root);
+        std::env::set_var("USERPROFILE", &root);
+
+        let result = add_mcp_server(
+            &PathBuf::from("antigravity"),
+            &PathBuf::from("/usr/local/bin/onus"),
+            &upstream,
+            &["--demo".to_string()],
+        );
+
+        if let Some(value) = old_home {
+            std::env::set_var("HOME", value);
+        } else {
+            std::env::remove_var("HOME");
         }
+        if let Some(value) = old_userprofile {
+            std::env::set_var("USERPROFILE", value);
+        } else {
+            std::env::remove_var("USERPROFILE");
+        }
+
+        result.unwrap();
+
+        let config_path = root.join(".gemini").join("config").join("mcp_config.json");
+        let content = std::fs::read_to_string(config_path).unwrap();
+        let config: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let entry = &config["mcpServers"][SERVER_NAME];
+        assert!(has_valid_onus_proxy(entry));
+        assert_eq!(entry["args"][4], "--");
+        assert_eq!(entry["args"][5], "--demo");
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
-    fn test_antigravity_path_format() {
-        let known = PathBuf::from(ANTIGRAVITY_WINDOWS_BIN);
-        let s = known.to_string_lossy();
-        assert!(s.contains("Antigravity") || s.contains("antigravity"));
-        assert!(s.contains("bin"));
-    }
-
-    #[test]
-    fn test_antigravity_extension_id() {
-        assert_eq!(EXTENSION_ID, "onus.onus-firewall");
+    fn test_extension_install_is_explicitly_unsupported() {
+        let result = install_extension(&PathBuf::from("agy"), &PathBuf::from("onus.vsix"));
+        assert!(result.is_err());
     }
 
     #[test]
     fn test_l3_workspace_advice_format() {
         let advice = l3_workspace_advice();
         assert!(!advice.is_empty());
-        assert!(advice.contains("bubblewrap") || advice.contains("not available"));
-    }
-
-    #[test]
-    fn test_mcp_config_check_no_binary() {
-        // With a nonexistent binary path, should return Error
-        let fake_path = PathBuf::from("/nonexistent/antigravity");
-        match check_mcp_config(&fake_path) {
-            McpConfigCheck::Error(_) => {} // expected
-            _ => {} // or NotFound — depends on how error propagates
-        }
-    }
-
-    #[test]
-    fn test_uninstall_extension_no_binary() {
-        let fake_path = PathBuf::from("/nonexistent/antigravity");
-        // Should return an error, not panic
-        let result = uninstall_extension(&fake_path);
-        assert!(result.is_err());
+        assert!(advice.contains("bubblewrap") || advice.contains("L3"));
     }
 }
